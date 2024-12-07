@@ -1,0 +1,41 @@
+version: v1alpha1
+debug: false
+persist: true
+machine:
+  type: controlplane
+  certSANs:
+    - "192.168.86.211"  # First control plane node
+    - "192.168.86.212"  # Second control plane node
+    - "192.168.86.213"  # Third control plane node
+    - "192.168.86.241"  # Virtual IP for HA
+  network:
+    interfaces:
+      - interface: eth0  # Production network
+        addresses:
+          - 192.168.86.211/24  # Adjust for each control plane node (211, 212, 213)
+        routes:
+          - network: 0.0.0.0/0
+            gateway: 192.168.86.1
+      - interface: eth1  # Storage network
+        addresses:
+          - 10.44.5.10/24
+    nameservers:
+      - 192.168.86.2
+      - 192.168.86.4
+  install:
+    disk: /dev/sda
+cluster:
+  controlPlane:
+    endpoint: https://192.168.86.241:6443  # Virtual IP for HA
+  network:
+    cni:
+      name: flannel
+    podSubnets:
+      - 10.244.0.0/16
+    serviceSubnets:
+      - 10.96.0.0/12
+  proxy:
+    disabled: true
+  etcd:
+    advertisedSubnets:
+      - 192.168.86.0/24  # Use production network for etcd

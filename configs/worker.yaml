@@ -1,0 +1,31 @@
+version: v1alpha1
+debug: false
+persist: true
+machine:
+  type: worker
+  network:
+    interfaces:
+      - interface: eth0  # Production network
+        addresses:
+          - 192.168.86.214/24  # First worker (.214), second worker will be .215
+        routes:
+          - network: 0.0.0.0/0
+            gateway: 192.168.86.1
+      - interface: eth1  # Storage network
+        addresses:
+          - 10.44.5.20/24  # Storage network address
+    nameservers:
+      - 192.168.86.2
+      - 192.168.86.4
+  install:
+    disk: /dev/sda
+cluster:
+  controlPlane:
+    endpoint: https://192.168.86.241:6443  # Virtual IP for HA
+  network:
+    cni:
+      name: flannel
+    podSubnets:
+      - 10.244.0.0/16
+    serviceSubnets:
+      - 10.96.0.0/12
