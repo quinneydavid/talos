@@ -1,0 +1,82 @@
+# Base stage to download latest release info
+FROM alpine:latest AS fetcher
+
+# Install necessary tools
+RUN apk add --no-cache curl jq
+
+# Get latest release version and download files with error checking
+WORKDIR /downloads
+RUN set -e && \
+    echo "Fetching latest Talos release version..." && \
+    latest_version=$(curl -sS https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name) && \
+    if [ -z "$latest_version" ]; then \
+        echo "Failed to get latest version" && exit 1; \
+    fi && \
+    echo "Downloading Talos ${latest_version} files..." && \
+    curl -L -o vmlinuz https://github.com/siderolabs/talos/releases/download/${latest_version}/vmlinuz && \
+    curl -L -o initramfs.xz https://github.com/siderolabs/talos/releases/download/${latest_version}/initramfs.xz && \
+    echo ${latest_version} > version.txt && \
+    # Verify files exist and have size
+    if [ ! -s vmlinuz ] || [ ! -s initramfs.xz ]; then \
+        echo "Failed to download required files" && exit 1; \
+    fi
+
+# Final stage
+FROM quay.io/poseidon/matchbox:latest
+
+# Add build arg and env var for GitHub repo
+ARG GITHUB_REPO
+ENV GITHUB_REPO=${GITHUB_REPO}
+
+# Install necessary tools in final image
+RUN apk add --no-cache curl jq
+
+# Create necessary directories
+RUN mkdir -p /var/lib/matchbox/assets \
+    /var/lib/matchbox/profiles \
+    /var/lib/matchbox/groups
+
+# Copy files from fetcher stage
+COPY --from=fetcher /downloads/vmlinuz /var/lib/matchbox/assets/vmlinuz
+COPY --from=fetcher /downloads/initramfs.xz /var/lib/matchbox/assets/initramfs.xz
+COPY --from=fetcher /downloads/version.txt /var/lib/matchbox/assets/version.txt
+
+# Create entrypoint script with improved error handling
+RUN echo '#!/bin/sh' > /entrypoint.sh && \
+    echo 'set -e' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Extract owner and repo from GITHUB_REPO URL' >> /entrypoint.sh && \
+    echo 'if [ -z "$GITHUB_REPO" ]; then' >> /entrypoint.sh && \
+    echo '  echo "GITHUB_REPO environment variable not set"' >> /entrypoint.sh && \
+    echo '  exit 1' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'REPO_PATH=$(echo ${GITHUB_REPO} | sed "s|https://github.com/||")' >> /entrypoint.sh && \
+    echo 'RAW_URL="https://raw.githubusercontent.com/${REPO_PATH}/main"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Download profiles' >> /entrypoint.sh && \
+    echo 'echo "Fetching profiles..."' >> /entrypoint.sh && \
+    echo 'mkdir -p /var/lib/matchbox/profiles' >> /entrypoint.sh && \
+    echo 'for profile in control-plane worker; do' >> /entrypoint.sh && \
+    echo '  echo "Downloading profile: $profile.json"' >> /entrypoint.sh && \
+    echo '  curl -L -f "${RAW_URL}/matchbox/profiles/${profile}.json" -o "/var/lib/matchbox/profiles/${profile}.json" || echo "Failed to download ${profile}.json"' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Download groups' >> /entrypoint.sh && \
+    echo 'echo "Fetching groups..."' >> /entrypoint.sh && \
+    echo 'mkdir -p /var/lib/matchbox/groups' >> /entrypoint.sh && \
+    echo 'for group in cp1 cp2 cp3 worker1 worker2; do' >> /entrypoint.sh && \
+    echo '  echo "Downloading group: $group.json"' >> /entrypoint.sh && \
+    echo '  curl -L -f "${RAW_URL}/matchbox/groups/${group}.json" -o "/var/lib/matchbox/groups/${group}.json" || echo "Failed to download ${group}.json"' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'exec /matchbox -address=0.0.0.0:8080 -log-level=debug' >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+# Set volume configuration
+VOLUME ["/var/lib/matchbox"]
+
+# Expose ports
+EXPOSE 8080
+
+ENTRYPOINT ["/entrypoint.sh"]

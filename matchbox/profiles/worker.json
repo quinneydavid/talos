@@ -12,7 +12,7 @@
         "console=tty0",
         "printk.devkmsg=on",
         "talos.platform=metal",
-        "talos.config=https://raw.githubusercontent.com/yourusername/talos-lab/main/configs/worker.yaml"
+        "talos.config=https://github.com/quinneydavid/talos/blob/main/configs/worker.yaml"
       ]
     }
   }

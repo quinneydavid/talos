@@ -1,23 +1,48 @@
 version: '3.8'
 
 services:
-  talos-pxe:
+  matchbox:
     build: 
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.matchbox
+      args:
+        - GITHUB_REPO=https://github.com/quinneydavid/talos
     environment:
-      - CONTROLPLANE_YAML=https://raw.githubusercontent.com/yourusername/talos-lab/main/configs/controlplane.yaml
-      - WORKER_YAML=https://raw.githubusercontent.com/yourusername/talos-lab/main/configs/worker.yaml
+      - GITHUB_REPO=https://github.com/quinneydavid/talos
+    volumes:
+      - matchbox_data:/var/lib/matchbox
+      - assets_data:/var/lib/matchbox/assets
     ports:
       - "8080:8080"
-      - "69:69/udp"
-    restart: unless-stopped
     networks:
       - pxe-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  matchbox-tftp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.matchbox-tftp
     volumes:
-      - ../matchbox/profiles:/var/lib/matchbox/profiles
-      - ../matchbox/groups:/var/lib/matchbox/groups
+      - tftp_data:/var/lib/tftpboot/assets:ro
+    ports:
+      - "69:69/udp"
+    networks:
+      - pxe-network
+    depends_on:
+      matchbox:
+        condition: service_healthy
 
 networks:
   pxe-network:
     driver: bridge
+
+volumes:
+  matchbox_data:
+    driver: local
+  tftp_data:
+    driver: local

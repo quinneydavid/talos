@@ -3,7 +3,7 @@
     "name": "Worker Node 2",
     "profile": "worker",
     "selector": {
-      "mac": "fill-in-mac-address-worker2"
+      "mac": "50:6b:8d:91:08:d3"
     },
     "metadata": {
       "ip": "192.168.86.215",
