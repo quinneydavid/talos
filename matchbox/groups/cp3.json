@@ -1,0 +1,13 @@
+{
+    "id": "cp3",
+    "name": "Control Plane Node 3",
+    "profile": "control-plane",
+    "selector": {
+      "mac": "fill-in-mac-address-cp3"
+    },
+    "metadata": {
+      "ip": "192.168.86.213",
+      "storage_ip": "10.44.5.12",
+      "hostname": "cp3"
+    }
+  }

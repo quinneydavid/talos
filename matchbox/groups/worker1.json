@@ -1,0 +1,13 @@
+{
+    "id": "worker1",
+    "name": "Worker Node 1",
+    "profile": "worker",
+    "selector": {
+      "mac": "fill-in-mac-address-worker1"
+    },
+    "metadata": {
+      "ip": "192.168.86.214",
+      "storage_ip": "10.44.5.20",
+      "hostname": "worker1"
+    }
+  }

@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  talos-pxe:
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - CONTROLPLANE_YAML=https://raw.githubusercontent.com/yourusername/talos-lab/main/configs/controlplane.yaml
+      - WORKER_YAML=https://raw.githubusercontent.com/yourusername/talos-lab/main/configs/worker.yaml
+    ports:
+      - "8080:8080"
+      - "69:69/udp"
+    restart: unless-stopped
+    networks:
+      - pxe-network
+    volumes:
+      - ../matchbox/profiles:/var/lib/matchbox/profiles
+      - ../matchbox/groups:/var/lib/matchbox/groups
+
+networks:
+  pxe-network:
+    driver: bridge

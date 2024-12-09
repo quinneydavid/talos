@@ -1,0 +1,13 @@
+{
+    "id": "cp2",
+    "name": "Control Plane Node 2",
+    "profile": "control-plane",
+    "selector": {
+      "mac": "fill-in-mac-address-cp2"
+    },
+    "metadata": {
+      "ip": "192.168.86.212",
+      "storage_ip": "10.44.5.11",
+      "hostname": "cp2"
+    }
+  }

@@ -1,0 +1,33 @@
+# Base stage to download latest release info
+FROM alpine:latest as fetcher
+
+# Install necessary tools
+RUN apk add --no-cache curl jq
+
+# Get latest release version and download files
+WORKDIR /downloads
+RUN latest_version=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name) && \
+    curl -L -o vmlinuz https://github.com/siderolabs/talos/releases/download/${latest_version}/vmlinuz && \
+    curl -L -o initramfs.xz https://github.com/siderolabs/talos/releases/download/${latest_version}/initramfs.xz && \
+    echo ${latest_version} > version.txt
+
+# Final stage
+FROM quay.io/poseidon/matchbox:latest
+
+# Set default environment variables for config URLs
+ENV CONTROLPLANE_YAML="https://raw.githubusercontent.com/yourusername/talos-lab/main/configs/controlplane.yaml" \
+    WORKER_YAML="https://raw.githubusercontent.com/yourusername/talos-lab/main/configs/worker.yaml"
+
+# Copy files from fetcher stage
+COPY --from=fetcher /downloads/vmlinuz /var/lib/matchbox/assets/vmlinuz
+COPY --from=fetcher /downloads/initramfs.xz /var/lib/matchbox/assets/initramfs.xz
+COPY --from=fetcher /downloads/version.txt /var/lib/matchbox/assets/version.txt
+
+# Copy matchbox profiles and groups
+COPY matchbox/profiles/* /var/lib/matchbox/profiles/
+COPY matchbox/groups/* /var/lib/matchbox/groups/
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD nc -z localhost 8080 || exit 1
+
+CMD ["-address=0.0.0.0:8080", "-log-level=debug"]

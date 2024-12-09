@@ -1,0 +1,18 @@
+{
+    "id": "worker",
+    "name": "worker",
+    "boot": {
+      "kernel": "/assets/vmlinuz",
+      "initrd": ["/assets/initramfs.xz"],
+      "args": [
+        "initrd=initramfs.xz",
+        "init_on_alloc=1",
+        "slab_nomerge",
+        "pti=on",
+        "console=tty0",
+        "printk.devkmsg=on",
+        "talos.platform=metal",
+        "talos.config=https://raw.githubusercontent.com/yourusername/talos-lab/main/configs/worker.yaml"
+      ]
+    }
+  }
