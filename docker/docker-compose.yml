@@ -12,7 +12,9 @@ services:
     ports:
       - "8080:8080"
     networks:
-      - pxe-network
+      pxe-network:
+        aliases:
+          - metadata.service
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "8080"]
       interval: 30s
