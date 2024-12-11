@@ -34,7 +34,7 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'DEFAULT talos' >> /entrypoint.sh && \
     echo 'LABEL talos' >> /entrypoint.sh && \
     echo '    KERNEL vmlinuz' >> /entrypoint.sh && \
-    echo '    APPEND initrd=initramfs.xz talos.platform=metal console=tty0 console=ttyS0 talos.config=https://metadata.service/talos/config?mac=${mac}' >> /entrypoint.sh && \
+    echo '    APPEND initrd=initramfs.xz init_on_alloc=1 slab_nomerge pti=on console=tty0 console=ttyS0 talos.platform=metal talos.config=http://matchbox:8080/metadata?mac=${mac}' >> /entrypoint.sh && \
     echo 'EOF' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Default config contents:"' >> /entrypoint.sh && \
