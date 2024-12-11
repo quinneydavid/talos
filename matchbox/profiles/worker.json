@@ -12,7 +12,8 @@
         "console=tty0",
         "printk.devkmsg=on",
         "talos.platform=metal",
-        "talos.config=https://github.com/quinneydavid/talos/blob/main/configs/worker.yaml"
+        "ip={{ .ip }}::{{ .gateway }}:{{ .netmask }}:{{ .hostname }}:eth0:off",
+        "talos.config=http://matchbox:8080/assets/worker.yaml"
       ]
     }
   }

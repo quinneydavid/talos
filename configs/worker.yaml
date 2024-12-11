@@ -7,18 +7,19 @@ machine:
     interfaces:
       - interface: eth0  # Production network
         addresses:
-          - 192.168.86.214/24  # First worker (.214), second worker will be .215
+          - {{ .ip }}/24  # Gets IP from matchbox metadata
         routes:
           - network: 0.0.0.0/0
-            gateway: 192.168.86.1
+            gateway: {{ .gateway }}
       - interface: eth1  # Storage network
         addresses:
-          - 10.44.5.20/24  # Storage network address
+          - {{ .storage_ip }}/24  # Gets storage IP from matchbox metadata
     nameservers:
       - 192.168.86.2
       - 192.168.86.4
   install:
     disk: /dev/sda
+  hostname: {{ .hostname }}  # Gets hostname from matchbox metadata
 cluster:
   controlPlane:
     endpoint: https://192.168.86.241:6443  # Virtual IP for HA

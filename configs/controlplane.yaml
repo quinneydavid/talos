@@ -12,18 +12,19 @@ machine:
     interfaces:
       - interface: eth0  # Production network
         addresses:
-          - 192.168.86.211/24  # Adjust for each control plane node (211, 212, 213)
+          - {{ .ip }}/24  # Gets IP from matchbox metadata
         routes:
           - network: 0.0.0.0/0
-            gateway: 192.168.86.1
+            gateway: {{ .gateway }}
       - interface: eth1  # Storage network
         addresses:
-          - 10.44.5.10/24
+          - {{ .storage_ip }}/24
     nameservers:
       - 192.168.86.2
       - 192.168.86.4
   install:
     disk: /dev/sda
+  hostname: {{ .hostname }}  # Gets hostname from matchbox metadata
 cluster:
   controlPlane:
     endpoint: https://192.168.86.241:6443  # Virtual IP for HA

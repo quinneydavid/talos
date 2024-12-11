@@ -8,18 +8,24 @@ RUN apk add --no-cache curl jq
 WORKDIR /downloads
 RUN set -e && \
     echo "Fetching latest Talos release version..." && \
-    latest_version=$(curl -sS https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name) && \
+    latest_version=$(curl -sSL https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name) && \
     if [ -z "$latest_version" ]; then \
         echo "Failed to get latest version" && exit 1; \
     fi && \
-    echo "Downloading Talos ${latest_version} files..." && \
-    curl -L -o vmlinuz https://github.com/siderolabs/talos/releases/download/${latest_version}/vmlinuz && \
-    curl -L -o initramfs.xz https://github.com/siderolabs/talos/releases/download/${latest_version}/initramfs.xz && \
+    echo "Latest version: ${latest_version}" && \
+    echo "Downloading vmlinuz..." && \
+    curl -fSL --progress-bar -H "Accept: application/octet-stream" \
+        -o vmlinuz "https://github.com/siderolabs/talos/releases/download/${latest_version}/vmlinuz-amd64" && \
+    echo "Downloading initramfs.xz..." && \
+    curl -fSL --progress-bar -H "Accept: application/octet-stream" \
+        -o initramfs.xz "https://github.com/siderolabs/talos/releases/download/${latest_version}/initramfs-amd64.xz" && \
     echo ${latest_version} > version.txt && \
     # Verify files exist and have size
     if [ ! -s vmlinuz ] || [ ! -s initramfs.xz ]; then \
         echo "Failed to download required files" && exit 1; \
-    fi
+    fi && \
+    # Print file sizes for verification
+    ls -lh vmlinuz initramfs.xz
 
 # Final stage
 FROM quay.io/poseidon/matchbox:latest
@@ -53,6 +59,17 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'REPO_PATH=$(echo ${GITHUB_REPO} | sed "s|https://github.com/||")' >> /entrypoint.sh && \
     echo 'RAW_URL="https://raw.githubusercontent.com/${REPO_PATH}/main"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Verify assets exist and have correct size' >> /entrypoint.sh && \
+    echo 'echo "Verifying assets..."' >> /entrypoint.sh && \
+    echo 'ls -lh /var/lib/matchbox/assets/' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Download Talos configs' >> /entrypoint.sh && \
+    echo 'echo "Fetching Talos configs..."' >> /entrypoint.sh && \
+    echo 'for config in controlplane worker; do' >> /entrypoint.sh && \
+    echo '  echo "Downloading config: $config.yaml"' >> /entrypoint.sh && \
+    echo '  curl -L -f "${RAW_URL}/configs/${config}.yaml" -o "/var/lib/matchbox/assets/${config}.yaml" || echo "Failed to download ${config}.yaml"' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Download profiles' >> /entrypoint.sh && \
     echo 'echo "Fetching profiles..."' >> /entrypoint.sh && \

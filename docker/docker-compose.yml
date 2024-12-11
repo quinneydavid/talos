@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   matchbox:
     build: 
@@ -11,7 +9,6 @@ services:
       - GITHUB_REPO=https://github.com/quinneydavid/talos
     volumes:
       - matchbox_data:/var/lib/matchbox
-      - assets_data:/var/lib/matchbox/assets
     ports:
       - "8080:8080"
     networks:
@@ -28,7 +25,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.matchbox-tftp
     volumes:
-      - tftp_data:/var/lib/tftpboot/assets:ro
+      - matchbox_data:/var/lib/matchbox:ro
+      - tftp_data:/var/lib/tftpboot
     ports:
       - "69:69/udp"
     networks:

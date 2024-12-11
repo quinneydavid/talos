@@ -1,43 +1,60 @@
 FROM alpine:latest
 
-# Install dnsmasq and syslinux
+LABEL maintainer="your-email@example.com"
+LABEL version="1.0"
+LABEL description="Docker image for matchbox-tftp service"
+
+# Install required packages
 RUN apk add --no-cache dnsmasq syslinux
 
 # Create necessary directories
-RUN mkdir -p /var/lib/tftpboot/assets && \
-    mkdir -p /var/lib/tftpboot/pxelinux.cfg
+RUN mkdir -p /var/lib/tftpboot/pxelinux.cfg
 
-# Set up boot files
+# Copy syslinux files
 RUN cp /usr/share/syslinux/lpxelinux.0 /var/lib/tftpboot/ && \
     cp /usr/share/syslinux/ldlinux.c32 /var/lib/tftpboot/
 
-# Configure dnsmasq for TFTP
-RUN printf "enable-tftp\n\
-tftp-root=/var/lib/tftpboot\n\
-dhcp-boot=lpxelinux.0\n\
-tftp-no-blocksize\n" > /etc/dnsmasq.conf
+# Configure dnsmasq
+RUN printf 'enable-tftp\ntftp-root=/var/lib/tftpboot\ndhcp-boot=lpxelinux.0\nlog-queries\nlog-dhcp\ntftp-no-blocksize\n' > /etc/dnsmasq.conf
 
-# Create default PXE configuration with proper spacing
-RUN printf "DEFAULT talos\n\
-LABEL talos\n\
-    KERNEL vmlinuz\n\
-    APPEND initrd=initramfs.xz \
-        page_poison=1 \
-        slab_nomerge \
-        pti=on \
-        panic=0 \
-        consoleblank=0 \
-        printk.devkmsg=on \
-        earlyprintk=serial,tty0,keep \
-        console=tty0 \
-        console=ttyS0 \
-        talos.platform=metal\n" > /var/lib/tftpboot/pxelinux.cfg/default
+# Create entrypoint script with improved error handling and debugging
+RUN echo '#!/bin/sh' > /entrypoint.sh && \
+    echo 'set -e' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Starting TFTP server setup..."' >> /entrypoint.sh && \
+    echo 'mkdir -p /var/lib/tftpboot/pxelinux.cfg' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Copying Talos files..."' >> /entrypoint.sh && \
+    echo 'cp -v /var/lib/matchbox/assets/vmlinuz /var/lib/tftpboot/' >> /entrypoint.sh && \
+    echo 'cp -v /var/lib/matchbox/assets/initramfs.xz /var/lib/tftpboot/' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Create PXE default configuration' >> /entrypoint.sh && \
+    echo 'cat > /var/lib/tftpboot/pxelinux.cfg/default << EOF' >> /entrypoint.sh && \
+    echo 'DEFAULT talos' >> /entrypoint.sh && \
+    echo 'LABEL talos' >> /entrypoint.sh && \
+    echo '    KERNEL vmlinuz' >> /entrypoint.sh && \
+    echo '    APPEND initrd=initramfs.xz ip=dhcp talos.platform=metal console=tty0 console=ttyS0 talos.config=http://matchbox:8080/metadata?mac=\${mac:hexhyp}' >> /entrypoint.sh && \
+    echo 'EOF' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# List files for debugging' >> /entrypoint.sh && \
+    echo 'echo "TFTP root contents:"' >> /entrypoint.sh && \
+    echo 'ls -la /var/lib/tftpboot/' >> /entrypoint.sh && \
+    echo 'echo "PXE config contents:"' >> /entrypoint.sh && \
+    echo 'ls -la /var/lib/tftpboot/pxelinux.cfg/' >> /entrypoint.sh && \
+    echo 'echo "Default config contents:"' >> /entrypoint.sh && \
+    echo 'cat /var/lib/tftpboot/pxelinux.cfg/default' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'if [ ! -f /var/lib/tftpboot/vmlinuz ] || [ ! -f /var/lib/tftpboot/initramfs.xz ]; then' >> /entrypoint.sh && \
+    echo '    echo "Error: Required files are missing!"' >> /entrypoint.sh && \
+    echo '    ls -la /var/lib/tftpboot/' >> /entrypoint.sh && \
+    echo '    exit 1' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Starting dnsmasq..."' >> /entrypoint.sh && \
+    echo 'exec dnsmasq -d -C /etc/dnsmasq.conf' >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
 
-# Create symlinks for boot files
-RUN ln -s /var/lib/tftpboot/assets/vmlinuz /var/lib/tftpboot/vmlinuz && \
-    ln -s /var/lib/tftpboot/assets/initramfs.xz /var/lib/tftpboot/initramfs.xz
-
-# Expose TFTP port
+VOLUME ["/var/lib/tftpboot", "/var/lib/matchbox"]
 EXPOSE 69/udp
 
-CMD ["dnsmasq", "-d", "-C", "/etc/dnsmasq.conf"]
+ENTRYPOINT ["/entrypoint.sh"]
