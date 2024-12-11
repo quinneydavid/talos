@@ -10,9 +10,11 @@
         "slab_nomerge",
         "pti=on",
         "console=tty0",
+        "console=ttyS0",
         "printk.devkmsg=on",
         "talos.platform=metal",
-        "talos.config=http://matchbox:8080/metadata?mac=${mac:hexhyp}"
+        "ip=dhcp",
+        "talos.config=http://matchbox:8080/metadata?mac=${mac}"
       ]
     }
   }
