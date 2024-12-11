@@ -1,0 +1,19 @@
+FROM alpine:latest
+
+RUN apk add --no-cache curl jq
+
+# Install vault
+RUN curl -o /bin/vault.zip https://releases.hashicorp.com/vault/1.15.2/vault_1.15.2_linux_amd64.zip && \
+    unzip /bin/vault.zip -d /bin && \
+    rm /bin/vault.zip && \
+    chmod +x /bin/vault
+
+# Install talosctl
+RUN TALOS_VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name) && \
+    curl -Lo /bin/talosctl https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talosctl-linux-amd64 && \
+    chmod +x /bin/talosctl
+
+COPY init-vault.sh /init-vault.sh
+RUN chmod +x /init-vault.sh
+
+CMD ["/init-vault.sh"]

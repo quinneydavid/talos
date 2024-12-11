@@ -2,83 +2,120 @@
 
 This repository contains configuration templates and setup files for deploying a Talos Kubernetes cluster.
 
+## Overview
+
+The setup includes:
+- Matchbox for serving Talos configurations
+- TFTP server for PXE boot
+- Integrated HashiCorp Vault (talos-vault) for secret management
+- Automated secret generation and storage
+
+## Components
+
+### talos-vault
+A dedicated Vault instance for storing Talos secrets:
+- Machine CA certificates and keys
+- Cluster secrets (tokens, IDs)
+- Bootstrap tokens
+
+### talos-vault-init
+Automatically initializes the vault with required secrets:
+- Generates temporary Talos configs
+- Extracts and stores secrets in vault
+- Cleans up temporary files
+
+### matchbox
+Serves Talos configurations and assets:
+- Fetches secrets from vault
+- Generates node-specific configs
+- Serves configs via HTTP
+
+### matchbox-tftp
+Provides PXE boot support:
+- Serves boot files via TFTP
+- Integrates with matchbox for config delivery
+
 ## Prerequisites
 
-- HashiCorp Vault server
 - Docker and Docker Compose
 - Access to a DHCP/PXE boot environment
 
-## Vault Setup
+## Quick Start
 
-Before running the matchbox service, you need to set up the following secrets in Vault:
-
-1. Start a Vault dev server (for testing) or use your production Vault server:
+1. Clone this repository:
 ```bash
-# For testing only
-vault server -dev
+git clone https://github.com/quinneydavid/talos.git
+cd talos/docker
 ```
 
-2. Set up the required secrets:
+2. Start the services:
 ```bash
-# Create a KV secrets engine
-vault secrets enable -path=secret kv
-
-# Store Talos PKI secrets
-vault kv put secret/talos/pki \
-  ca_crt="$(talosctl gen config --output-dir /tmp talos-test https://example.com:6443 && cat /tmp/controlplane.yaml | yq .machine.ca.crt)" \
-  ca_key="$(cat /tmp/controlplane.yaml | yq .machine.ca.key)" \
-  cluster_ca_crt="$(cat /tmp/controlplane.yaml | yq .cluster.ca.crt)"
-
-# Store Talos cluster secrets
-vault kv put secret/talos/cluster \
-  cluster_id="$(cat /tmp/controlplane.yaml | yq .cluster.id)" \
-  cluster_secret="$(cat /tmp/controlplane.yaml | yq .cluster.secret)" \
-  bootstrap_token="$(cat /tmp/controlplane.yaml | yq .cluster.token)" \
-  machine_token="$(cat /tmp/controlplane.yaml | yq .machine.token)"
-
-# Clean up temporary files
-rm -rf /tmp/controlplane.yaml /tmp/worker.yaml /tmp/talosconfig
-```
-
-## Environment Setup
-
-Create a `.env` file in the docker directory with your Vault configuration:
-
-```bash
-VAULT_ADDR=http://vault:8200
-VAULT_TOKEN=your-vault-token
-```
-
-## Running the Services
-
-Start the matchbox and TFTP services:
-
-```bash
-cd docker
 docker-compose up --build
 ```
 
-The services will:
-1. Fetch the latest Talos release
-2. Download config templates from this repository
-3. Fetch secrets from Vault
-4. Generate the final configurations
-5. Serve configs via matchbox and TFTP
-
-## Security Notes
-
-- Never commit secrets or certificates to the repository
-- Use environment variables for Vault connection details
-- Store all sensitive data in Vault
-- Rotate secrets and certificates periodically
-- Monitor Vault audit logs for secret access
+The setup will:
+1. Start talos-vault in dev mode
+2. Initialize vault with generated Talos secrets
+3. Start matchbox and TFTP services
+4. Configure everything for PXE boot
 
 ## Network Configuration
 
-The matchbox service provides:
-- HTTP on port 8080 for metadata and assets
+The services provide:
+- HTTP (matchbox) on port 8080 for metadata and assets
 - TFTP on port 69 for PXE boot
+- Vault UI on port 8200 (dev mode)
 
 Ensure your DHCP server is configured to:
 - Provide next-server pointing to your TFTP server
 - Set filename to "lpxelinux.0"
+
+## Security Notes
+
+- talos-vault runs in dev mode for testing
+- All secrets are automatically generated and stored in vault
+- Secrets are never written to disk or committed to git
+- For production:
+  - Use a proper Vault installation
+  - Configure proper authentication
+  - Enable audit logging
+  - Use TLS for all services
+
+## Vault Structure
+
+Secrets are organized in vault as follows:
+
+```
+secret/
+└── talos/
+    ├── pki/
+    │   ├── ca_crt
+    │   ├── ca_key
+    │   └── cluster_ca_crt
+    └── cluster/
+        ├── cluster_id
+        ├── cluster_secret
+        ├── bootstrap_token
+        └── machine_token
+```
+
+## Troubleshooting
+
+1. Check vault status:
+```bash
+docker-compose exec talos-vault vault status
+```
+
+2. View vault secrets:
+```bash
+docker-compose exec talos-vault vault kv list secret/talos
+```
+
+3. Check matchbox logs:
+```bash
+docker-compose logs -f matchbox
+```
+
+4. Check TFTP logs:
+```bash
+docker-compose logs -f matchbox-tftp

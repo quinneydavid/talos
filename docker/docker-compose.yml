@@ -5,6 +5,37 @@ networks:
     driver: bridge
 
 services:
+  talos-vault:
+    image: hashicorp/vault:latest
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - "8200:8200"
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=dev-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+      - VAULT_ADDR=http://127.0.0.1:8200
+    networks:
+      - pxe-network
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  talos-vault-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.vault-init
+    depends_on:
+      talos-vault:
+        condition: service_healthy
+    environment:
+      - VAULT_ADDR=http://talos-vault:8200
+      - VAULT_TOKEN=dev-token
+    networks:
+      - pxe-network
+
   matchbox:
     build:
       context: .
@@ -12,13 +43,17 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - VAULT_ADDR=${VAULT_ADDR}
-      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_ADDR=http://talos-vault:8200
+      - VAULT_TOKEN=dev-token
       - GITHUB_REPO=https://github.com/quinneydavid/talos
     networks:
       - pxe-network
+    depends_on:
+      talos-vault-init:
+        condition: service_completed_successfully
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - matchbox-assets:/var/lib/matchbox/assets
 
   matchbox-tftp:
     build:
@@ -29,10 +64,7 @@ services:
     networks:
       - pxe-network
     volumes:
-      - type: volume
-        source: matchbox-assets
-        target: /var/lib/matchbox/assets
-        read_only: true
+      - matchbox-assets:/var/lib/matchbox/assets:ro
 
 volumes:
   matchbox-assets:
