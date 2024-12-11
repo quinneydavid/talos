@@ -1,48 +1,38 @@
-services:
-  matchbox:
-    build: 
-      context: ..
-      dockerfile: docker/Dockerfile.matchbox
-      args:
-        - GITHUB_REPO=https://github.com/quinneydavid/talos
-    environment:
-      - GITHUB_REPO=https://github.com/quinneydavid/talos
-    volumes:
-      - matchbox_data:/var/lib/matchbox
-    ports:
-      - "8080:8080"
-    networks:
-      pxe-network:
-        aliases:
-          - metadata.service
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "8080"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-
-  matchbox-tftp:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.matchbox-tftp
-    volumes:
-      - matchbox_data:/var/lib/matchbox:ro
-      - tftp_data:/var/lib/tftpboot
-    ports:
-      - "69:69/udp"
-    networks:
-      - pxe-network
-    depends_on:
-      matchbox:
-        condition: service_healthy
+version: '3'
 
 networks:
   pxe-network:
     driver: bridge
 
+services:
+  matchbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.matchbox
+    ports:
+      - "8080:8080"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - GITHUB_REPO=https://github.com/quinneydavid/talos
+    networks:
+      - pxe-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  matchbox-tftp:
+    build:
+      context: .
+      dockerfile: Dockerfile.matchbox-tftp
+    ports:
+      - "69:69/udp"
+    networks:
+      - pxe-network
+    volumes:
+      - type: volume
+        source: matchbox-assets
+        target: /var/lib/matchbox/assets
+        read_only: true
+
 volumes:
-  matchbox_data:
-    driver: local
-  tftp_data:
-    driver: local
+  matchbox-assets:

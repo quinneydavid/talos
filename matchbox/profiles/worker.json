@@ -16,5 +16,11 @@
         "ip=dhcp",
         "talos.config=http://matchbox:8080/metadata?mac=${mac}"
       ]
-    }
-  }
+    },
+    "generic_assets": [
+      {
+        "source": "/var/lib/matchbox/assets/worker-worker1.yaml",
+        "destination": "/config.yaml"
+      }
+    ]
+}

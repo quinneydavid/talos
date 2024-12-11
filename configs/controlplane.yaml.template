@@ -1,0 +1,43 @@
+version: v1alpha1
+debug: false
+persist: true
+machine:
+  type: controlplane
+  token: ${MACHINE_TOKEN}
+  network:
+    hostname: ${NODE_HOSTNAME}
+    interfaces:
+      - interface: eth0
+        addresses:
+          - ${NODE_IP}/24
+        routes:
+          - network: 0.0.0.0/0
+            gateway: 192.168.86.1
+      - interface: eth1
+        addresses:
+          - ${STORAGE_IP}/24
+    nameservers:
+      - 192.168.86.2
+      - 192.168.86.4
+  install:
+    disk: /dev/sda
+  certSANs:
+    - "192.168.86.211"
+    - "192.168.86.212"
+    - "192.168.86.213"
+    - "192.168.86.241"
+cluster:
+  name: talos-k8s-metal-tutorial
+  controlPlane:
+    endpoint: https://192.168.86.241:6443
+  network:
+    dnsDomain: cluster.local
+    podSubnets:
+      - 10.244.0.0/16
+    serviceSubnets:
+      - 10.96.0.0/12
+  apiServer:
+    image: registry.k8s.io/kube-apiserver:v1.31.2
+    certSANs:
+      - 192.168.86.241
+    disablePodSecurityPolicy: true
