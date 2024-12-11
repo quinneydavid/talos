@@ -1,23 +1,19 @@
 FROM alpine:latest
 
-LABEL maintainer="your-email@example.com"
-LABEL version="1.0"
-LABEL description="Docker image for matchbox-tftp service"
-
-# Install required packages
+# Install necessary packages
 RUN apk add --no-cache dnsmasq syslinux
 
-# Create necessary directories
+# Create TFTP boot directory
 RUN mkdir -p /var/lib/tftpboot/pxelinux.cfg
 
-# Copy syslinux files
+# Copy SYSLINUX files
 RUN cp /usr/share/syslinux/lpxelinux.0 /var/lib/tftpboot/ && \
     cp /usr/share/syslinux/ldlinux.c32 /var/lib/tftpboot/
 
 # Configure dnsmasq
 RUN printf 'enable-tftp\ntftp-root=/var/lib/tftpboot\ndhcp-boot=lpxelinux.0\nlog-queries\nlog-dhcp\ntftp-no-blocksize\n' > /etc/dnsmasq.conf
 
-# Create entrypoint script with improved error handling and debugging
+# Create entrypoint script
 RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'set -e' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
@@ -25,36 +21,29 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'mkdir -p /var/lib/tftpboot/pxelinux.cfg' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Copying Talos files..."' >> /entrypoint.sh && \
-    echo 'cp -v /var/lib/matchbox/assets/vmlinuz /var/lib/tftpboot/' >> /entrypoint.sh && \
-    echo 'cp -v /var/lib/matchbox/assets/initramfs.xz /var/lib/tftpboot/' >> /entrypoint.sh && \
+    echo 'cp /var/lib/matchbox/assets/vmlinuz /var/lib/tftpboot/' >> /entrypoint.sh && \
+    echo 'cp /var/lib/matchbox/assets/initramfs.xz /var/lib/tftpboot/' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# Create PXE default configuration' >> /entrypoint.sh && \
+    echo 'echo "TFTP root contents:"' >> /entrypoint.sh && \
+    echo 'ls -lh /var/lib/tftpboot/' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "PXE config contents:"' >> /entrypoint.sh && \
+    echo 'ls -la /var/lib/tftpboot/pxelinux.cfg/' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
     echo 'cat > /var/lib/tftpboot/pxelinux.cfg/default << EOF' >> /entrypoint.sh && \
     echo 'DEFAULT talos' >> /entrypoint.sh && \
     echo 'LABEL talos' >> /entrypoint.sh && \
     echo '    KERNEL vmlinuz' >> /entrypoint.sh && \
-    echo '    APPEND initrd=initramfs.xz ip=dhcp talos.platform=metal console=tty0 console=ttyS0 talos.config=http://matchbox:8080/metadata?mac=\${mac:hexhyp}' >> /entrypoint.sh && \
+    echo '    APPEND initrd=initramfs.xz talos.platform=metal console=tty0 console=ttyS0 talos.config=http://matchbox:8080/metadata?mac=${mac:hexhyp}' >> /entrypoint.sh && \
     echo 'EOF' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# List files for debugging' >> /entrypoint.sh && \
-    echo 'echo "TFTP root contents:"' >> /entrypoint.sh && \
-    echo 'ls -la /var/lib/tftpboot/' >> /entrypoint.sh && \
-    echo 'echo "PXE config contents:"' >> /entrypoint.sh && \
-    echo 'ls -la /var/lib/tftpboot/pxelinux.cfg/' >> /entrypoint.sh && \
     echo 'echo "Default config contents:"' >> /entrypoint.sh && \
     echo 'cat /var/lib/tftpboot/pxelinux.cfg/default' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'if [ ! -f /var/lib/tftpboot/vmlinuz ] || [ ! -f /var/lib/tftpboot/initramfs.xz ]; then' >> /entrypoint.sh && \
-    echo '    echo "Error: Required files are missing!"' >> /entrypoint.sh && \
-    echo '    ls -la /var/lib/tftpboot/' >> /entrypoint.sh && \
-    echo '    exit 1' >> /entrypoint.sh && \
-    echo 'fi' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
     echo 'echo "Starting dnsmasq..."' >> /entrypoint.sh && \
-    echo 'exec dnsmasq -d -C /etc/dnsmasq.conf' >> /entrypoint.sh && \
+    echo 'exec dnsmasq -d' >> /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
-VOLUME ["/var/lib/tftpboot", "/var/lib/matchbox"]
 EXPOSE 69/udp
 
 ENTRYPOINT ["/entrypoint.sh"]
