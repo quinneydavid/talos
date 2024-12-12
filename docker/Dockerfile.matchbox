@@ -95,9 +95,9 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching Talos config templates..."' >> /entrypoint.sh && \
     echo 'echo "Downloading template: controlplane.yaml.template"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/assets/controlplane.yaml.template "${GITHUB_REPO}/raw/main/configs/controlplane.yaml"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/assets/controlplane.yaml.template "${GITHUB_REPO}/raw/main/configs/controlplane.yaml.template"' >> /entrypoint.sh && \
     echo 'echo "Downloading template: worker.yaml.template"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/assets/worker.yaml.template "${GITHUB_REPO}/raw/main/configs/worker.yaml"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/assets/worker.yaml.template "${GITHUB_REPO}/raw/main/configs/worker.yaml.template"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching profiles..."' >> /entrypoint.sh && \
     echo 'echo "Downloading profile: control-plane.json"' >> /entrypoint.sh && \
