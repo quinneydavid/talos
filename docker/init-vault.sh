@@ -7,8 +7,13 @@ until vault status > /dev/null 2>&1; do
     sleep 1
 done
 
-# Enable the KV secrets engine
-vault secrets enable -path=secret kv
+# Check if secrets engine is already enabled
+if ! vault secrets list | grep -q '^secret/'; then
+    echo "Enabling KV secrets engine..."
+    vault secrets enable -path=secret kv
+else
+    echo "KV secrets engine already enabled"
+fi
 
 # Generate temporary Talos configs to extract secrets
 echo "Generating temporary Talos configs..."

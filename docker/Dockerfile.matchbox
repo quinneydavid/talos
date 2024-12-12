@@ -1,25 +1,30 @@
 FROM alpine:latest as fetcher
 
-RUN apk add --no-cache curl jq vault
+RUN apk add --no-cache curl jq
 
 WORKDIR /downloads
 
+# Fetch latest version dynamically
 RUN set -e && \
-    echo "Fetching latest Talos release version..." && \
-    latest_version=$(curl -sSL https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name) && \
-    if [ -z "$latest_version" ]; then \
+    echo "Fetching latest Talos version..." && \
+    TALOS_VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name) && \
+    if [ -z "$TALOS_VERSION" ]; then \
         echo "Failed to get latest version" && exit 1; \
     fi && \
-    echo "Latest version: ${latest_version}" && \
+    echo "Latest version: ${TALOS_VERSION}" && \
     echo "Downloading vmlinuz..." && \
-    curl -fSL --progress-bar -H "Accept: application/octet-stream" -o vmlinuz "https://github.com/siderolabs/talos/releases/download/${latest_version}/vmlinuz" && \
+    curl -fSL --progress-bar -H "Accept: application/octet-stream" -o vmlinuz "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/vmlinuz-amd64" && \
     echo "Downloading initramfs.xz..." && \
-    curl -fSL --progress-bar -H "Accept: application/octet-stream" -o initramfs.xz "https://github.com/siderolabs/talos/releases/download/${latest_version}/initramfs.xz" && \
-    echo "${latest_version}" > version.txt
+    curl -fSL --progress-bar -H "Accept: application/octet-stream" -o initramfs.xz "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/initramfs-amd64.xz" && \
+    echo "${TALOS_VERSION}" > version.txt
 
 FROM quay.io/poseidon/matchbox:latest
 
-RUN apk add --no-cache curl jq vault envsubst
+RUN apk add --no-cache curl jq gettext ca-certificates && \
+    curl -fSL -o /bin/vault.zip https://releases.hashicorp.com/vault/1.15.2/vault_1.15.2_linux_amd64.zip && \
+    unzip /bin/vault.zip -d /bin && \
+    rm /bin/vault.zip && \
+    chmod +x /bin/vault
 
 RUN mkdir -p /var/lib/matchbox/assets \
     /var/lib/matchbox/profiles \
@@ -45,30 +50,6 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'echo "Verifying assets..."' >> /entrypoint.sh && \
     echo 'ls -lh /var/lib/matchbox/assets' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'echo "Fetching Talos config templates..."' >> /entrypoint.sh && \
-    echo 'echo "Downloading template: controlplane.yaml.template"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /tmp/controlplane.yaml.template "${GITHUB_REPO}/raw/main/configs/controlplane.yaml.template"' >> /entrypoint.sh && \
-    echo 'echo "Downloading template: worker.yaml.template"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /tmp/worker.yaml.template "${GITHUB_REPO}/raw/main/configs/worker.yaml.template"' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo '# Fetch secrets from Vault and create environment variables' >> /entrypoint.sh && \
-    echo 'export TALOS_CA_CRT=$(vault kv get -field=ca_crt secret/talos/pki)' >> /entrypoint.sh && \
-    echo 'export TALOS_CA_KEY=$(vault kv get -field=ca_key secret/talos/pki)' >> /entrypoint.sh && \
-    echo 'export CLUSTER_CA_CRT=$(vault kv get -field=cluster_ca_crt secret/talos/pki)' >> /entrypoint.sh && \
-    echo 'export CLUSTER_ID=$(vault kv get -field=cluster_id secret/talos/cluster)' >> /entrypoint.sh && \
-    echo 'export CLUSTER_SECRET=$(vault kv get -field=cluster_secret secret/talos/cluster)' >> /entrypoint.sh && \
-    echo 'export BOOTSTRAP_TOKEN=$(vault kv get -field=bootstrap_token secret/talos/cluster)' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo '# Generate configs from templates' >> /entrypoint.sh && \
-    echo 'envsubst < /tmp/controlplane.yaml.template > /var/lib/matchbox/assets/controlplane-cp1.yaml' >> /entrypoint.sh && \
-    echo 'envsubst < /tmp/worker.yaml.template > /var/lib/matchbox/assets/worker-worker1.yaml' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo 'echo "Fetching profiles..."' >> /entrypoint.sh && \
-    echo 'echo "Downloading profile: control-plane.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/profiles/control-plane.json "${GITHUB_REPO}/raw/main/matchbox/profiles/control-plane.json"' >> /entrypoint.sh && \
-    echo 'echo "Downloading profile: worker.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/profiles/worker.json "${GITHUB_REPO}/raw/main/matchbox/profiles/worker.json"' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching groups..."' >> /entrypoint.sh && \
     echo 'echo "Downloading group: cp1.json"' >> /entrypoint.sh && \
     echo 'curl -fSL -o /var/lib/matchbox/groups/cp1.json "${GITHUB_REPO}/raw/main/matchbox/groups/cp1.json"' >> /entrypoint.sh && \
@@ -81,10 +62,25 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'echo "Downloading group: worker2.json"' >> /entrypoint.sh && \
     echo 'curl -fSL -o /var/lib/matchbox/groups/worker2.json "${GITHUB_REPO}/raw/main/matchbox/groups/worker2.json"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# Clean up secrets from environment' >> /entrypoint.sh && \
-    echo 'unset VAULT_TOKEN TALOS_CA_CRT TALOS_CA_KEY CLUSTER_CA_CRT CLUSTER_ID CLUSTER_SECRET BOOTSTRAP_TOKEN' >> /entrypoint.sh && \
+    echo 'echo "Fetching Talos config templates..."' >> /entrypoint.sh && \
+    echo 'echo "Downloading template: controlplane.yaml.template"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/assets/controlplane.yaml.template "${GITHUB_REPO}/raw/main/configs/controlplane.yaml.template"' >> /entrypoint.sh && \
+    echo 'echo "Downloading template: worker.yaml.template"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/assets/worker.yaml.template "${GITHUB_REPO}/raw/main/configs/worker.yaml.template"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'exec /matchbox "$@"' >> /entrypoint.sh && \
+    echo 'echo "Fetching profiles..."' >> /entrypoint.sh && \
+    echo 'echo "Downloading profile: control-plane.json"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/profiles/control-plane.json "${GITHUB_REPO}/raw/main/matchbox/profiles/control-plane.json"' >> /entrypoint.sh && \
+    echo 'echo "Downloading profile: worker.json"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/profiles/worker.json "${GITHUB_REPO}/raw/main/matchbox/profiles/worker.json"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Get machine token from vault and add to metadata' >> /entrypoint.sh && \
+    echo 'machine_token=$(vault read -format=json secret/data/talos/cluster | jq -r .data.data.machine_token)' >> /entrypoint.sh && \
+    echo 'for group in /var/lib/matchbox/groups/*.json; do' >> /entrypoint.sh && \
+    echo '  jq --arg token "$machine_token" '\''.metadata.machine_token = $token'\'' "$group" > "$group.tmp" && mv "$group.tmp" "$group"' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'exec /matchbox -address=0.0.0.0:8080 "$@"' >> /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]

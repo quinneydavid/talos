@@ -4,6 +4,7 @@ worker-worker1.yaml
 .env
 *.key
 *.crt
+commands
 
 # Ignore generated files
 /tmp/

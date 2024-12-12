@@ -3,19 +3,19 @@ debug: false
 persist: true
 machine:
   type: controlplane
-  token: ${MACHINE_TOKEN}
+  token: {{ .machine_token }}
   network:
-    hostname: ${NODE_HOSTNAME}
+    hostname: {{ .hostname }}
     interfaces:
       - interface: eth0
         addresses:
-          - ${NODE_IP}/24
+          - {{ .ip }}/24
         routes:
           - network: 0.0.0.0/0
-            gateway: 192.168.86.1
+            gateway: {{ .gateway }}
       - interface: eth1
         addresses:
-          - ${STORAGE_IP}/24
+          - {{ .storage_ip }}/24
     nameservers:
       - 192.168.86.2
       - 192.168.86.4
