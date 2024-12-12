@@ -34,6 +34,43 @@ COPY --from=fetcher /downloads/vmlinuz /var/lib/matchbox/assets/vmlinuz
 COPY --from=fetcher /downloads/initramfs.xz /var/lib/matchbox/assets/initramfs.xz
 COPY --from=fetcher /downloads/version.txt /var/lib/matchbox/assets/version.txt
 
+# Add template processing script
+RUN echo '#!/bin/sh' > /usr/local/bin/process_template && \
+    echo 'template_file="$1"' >> /usr/local/bin/process_template && \
+    echo 'output_file="$2"' >> /usr/local/bin/process_template && \
+    echo 'metadata="$3"' >> /usr/local/bin/process_template && \
+    echo '' >> /usr/local/bin/process_template && \
+    echo '# Function to get value from Vault' >> /usr/local/bin/process_template && \
+    echo 'get_vault_secret() {' >> /usr/local/bin/process_template && \
+    echo '    path="$1"' >> /usr/local/bin/process_template && \
+    echo '    key="$2"' >> /usr/local/bin/process_template && \
+    echo '    vault read -format=json "secret/data/$path" | jq -r ".data.data.$key"' >> /usr/local/bin/process_template && \
+    echo '}' >> /usr/local/bin/process_template && \
+    echo '' >> /usr/local/bin/process_template && \
+    echo '# Create temporary file with metadata substitutions' >> /usr/local/bin/process_template && \
+    echo 'temp_file=$(mktemp)' >> /usr/local/bin/process_template && \
+    echo 'echo "$metadata" > "$temp_file"' >> /usr/local/bin/process_template && \
+    echo '' >> /usr/local/bin/process_template && \
+    echo '# Process the template' >> /usr/local/bin/process_template && \
+    echo 'content=$(cat "$template_file")' >> /usr/local/bin/process_template && \
+    echo '' >> /usr/local/bin/process_template && \
+    echo '# Replace Vault template variables' >> /usr/local/bin/process_template && \
+    echo 'while IFS= read -r line; do' >> /usr/local/bin/process_template && \
+    echo '    if echo "$line" | grep -q "{{ vault "; then' >> /usr/local/bin/process_template && \
+    echo '        path=$(echo "$line" | sed -n '\''s/.*vault "\([^"]*\)".*/\1/p'\'')' >> /usr/local/bin/process_template && \
+    echo '        key=$(echo "$line" | sed -n '\''s/.*"\([^"]*\)"}.*/\1/p'\'' | cut -d" " -f2)' >> /usr/local/bin/process_template && \
+    echo '        value=$(get_vault_secret "$path" "$key")' >> /usr/local/bin/process_template && \
+    echo '        content=$(echo "$content" | sed "s|{{ vault \"$path\" \"$key\" }}|$value|g")' >> /usr/local/bin/process_template && \
+    echo '    fi' >> /usr/local/bin/process_template && \
+    echo 'done <<< "$content"' >> /usr/local/bin/process_template && \
+    echo '' >> /usr/local/bin/process_template && \
+    echo '# Process metadata substitutions' >> /usr/local/bin/process_template && \
+    echo 'echo "$content" | envsubst "$(cat $temp_file)" > "$output_file"' >> /usr/local/bin/process_template && \
+    echo '' >> /usr/local/bin/process_template && \
+    echo '# Cleanup' >> /usr/local/bin/process_template && \
+    echo 'rm "$temp_file"' >> /usr/local/bin/process_template && \
+    chmod +x /usr/local/bin/process_template
+
 RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'set -e' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
@@ -51,22 +88,16 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'ls -lh /var/lib/matchbox/assets' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching groups..."' >> /entrypoint.sh && \
-    echo 'echo "Downloading group: cp1.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/groups/cp1.json "${GITHUB_REPO}/raw/main/matchbox/groups/cp1.json"' >> /entrypoint.sh && \
-    echo 'echo "Downloading group: cp2.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/groups/cp2.json "${GITHUB_REPO}/raw/main/matchbox/groups/cp2.json"' >> /entrypoint.sh && \
-    echo 'echo "Downloading group: cp3.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/groups/cp3.json "${GITHUB_REPO}/raw/main/matchbox/groups/cp3.json"' >> /entrypoint.sh && \
-    echo 'echo "Downloading group: worker1.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/groups/worker1.json "${GITHUB_REPO}/raw/main/matchbox/groups/worker1.json"' >> /entrypoint.sh && \
-    echo 'echo "Downloading group: worker2.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/groups/worker2.json "${GITHUB_REPO}/raw/main/matchbox/groups/worker2.json"' >> /entrypoint.sh && \
+    echo 'for node in cp1 cp2 cp3 worker1 worker2; do' >> /entrypoint.sh && \
+    echo '  echo "Downloading group: $node.json"' >> /entrypoint.sh && \
+    echo '  curl -fSL -o /var/lib/matchbox/groups/$node.json "${GITHUB_REPO}/raw/main/matchbox/groups/$node.json"' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching Talos config templates..."' >> /entrypoint.sh && \
     echo 'echo "Downloading template: controlplane.yaml.template"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/assets/controlplane.yaml.template "${GITHUB_REPO}/raw/main/configs/controlplane.yaml.template"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/assets/controlplane.yaml.template "${GITHUB_REPO}/raw/main/configs/controlplane.yaml"' >> /entrypoint.sh && \
     echo 'echo "Downloading template: worker.yaml.template"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/assets/worker.yaml.template "${GITHUB_REPO}/raw/main/configs/worker.yaml.template"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/assets/worker.yaml.template "${GITHUB_REPO}/raw/main/configs/worker.yaml"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching profiles..."' >> /entrypoint.sh && \
     echo 'echo "Downloading profile: control-plane.json"' >> /entrypoint.sh && \
@@ -74,10 +105,15 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'echo "Downloading profile: worker.json"' >> /entrypoint.sh && \
     echo 'curl -fSL -o /var/lib/matchbox/profiles/worker.json "${GITHUB_REPO}/raw/main/matchbox/profiles/worker.json"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# Get machine token from vault and add to metadata' >> /entrypoint.sh && \
-    echo 'machine_token=$(vault read -format=json secret/data/talos/cluster | jq -r .data.data.machine_token)' >> /entrypoint.sh && \
-    echo 'for group in /var/lib/matchbox/groups/*.json; do' >> /entrypoint.sh && \
-    echo '  jq --arg token "$machine_token" '\''.metadata.machine_token = $token'\'' "$group" > "$group.tmp" && mv "$group.tmp" "$group"' >> /entrypoint.sh && \
+    echo '# Process templates for each node' >> /entrypoint.sh && \
+    echo 'for node in cp1 cp2 cp3; do' >> /entrypoint.sh && \
+    echo '  metadata=$(jq -r .metadata /var/lib/matchbox/groups/$node.json)' >> /entrypoint.sh && \
+    echo '  /usr/local/bin/process_template /var/lib/matchbox/assets/controlplane.yaml.template /var/lib/matchbox/assets/controlplane-$node.yaml "$metadata"' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'for node in worker1 worker2; do' >> /entrypoint.sh && \
+    echo '  metadata=$(jq -r .metadata /var/lib/matchbox/groups/$node.json)' >> /entrypoint.sh && \
+    echo '  /usr/local/bin/process_template /var/lib/matchbox/assets/worker.yaml.template /var/lib/matchbox/assets/worker-$node.yaml "$metadata"' >> /entrypoint.sh && \
     echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'exec /matchbox -address=0.0.0.0:8080 "$@"' >> /entrypoint.sh && \

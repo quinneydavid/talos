@@ -3,12 +3,21 @@ debug: false
 persist: true
 machine:
   type: controlplane
+  token: {{ .machine_token }}
+  ca:
+    crt: {{ vault "secret/talos/pki" "ca_crt" }}
+    key: {{ vault "secret/talos/pki" "ca_key" }}
   certSANs:
     - "192.168.86.211"  # First control plane node
     - "192.168.86.212"  # Second control plane node
     - "192.168.86.213"  # Third control plane node
     - "192.168.86.241"  # Virtual IP for HA
+  kubelet:
+    image: ghcr.io/siderolabs/kubelet:v1.31.2
+    defaultRuntimeSeccompProfileEnabled: true
+    disableManifestsDirectory: true
   network:
+    hostname: {{ .hostname }}
     interfaces:
       - interface: eth0  # Production network
         addresses:
@@ -24,11 +33,29 @@ machine:
       - 192.168.86.4
   install:
     disk: /dev/sda
-  hostname: {{ .hostname }}  # Gets hostname from matchbox metadata
+    image: ghcr.io/siderolabs/installer:v1.8.3
+    wipe: false
+  features:
+    rbac: true
+    stableHostname: true
+    apidCheckExtKeyUsage: true
+    diskQuotaSupport: true
+    kubePrism:
+      enabled: true
+      port: 7445
+    hostDNS:
+      enabled: true
+      forwardKubeDNSToHost: true
+  nodeLabels:
+    node.kubernetes.io/exclude-from-external-load-balancers: ""
 cluster:
+  id: {{ vault "secret/talos/cluster" "cluster_id" }}
+  secret: {{ vault "secret/talos/cluster" "cluster_secret" }}
   controlPlane:
     endpoint: https://192.168.86.241:6443  # Virtual IP for HA
+  clusterName: k8s.lan
   network:
+    dnsDomain: cluster.local
     cni:
       name: flannel
     podSubnets:

@@ -3,7 +3,15 @@ debug: false
 persist: true
 machine:
   type: worker
+  token: {{ vault "secret/talos/cluster" "machine_token" }}
+  ca:
+    crt: {{ vault "secret/talos/pki" "ca_crt" }}
+  kubelet:
+    image: ghcr.io/siderolabs/kubelet:v1.31.2
+    defaultRuntimeSeccompProfileEnabled: true
+    disableManifestsDirectory: true
   network:
+    hostname: {{ .hostname }}
     interfaces:
       - interface: eth0  # Production network
         addresses:
@@ -13,17 +21,33 @@ machine:
             gateway: {{ .gateway }}
       - interface: eth1  # Storage network
         addresses:
-          - {{ .storage_ip }}/24  # Gets storage IP from matchbox metadata
+          - {{ .storage_ip }}/24
     nameservers:
       - 192.168.86.2
       - 192.168.86.4
   install:
     disk: /dev/sda
-  hostname: {{ .hostname }}  # Gets hostname from matchbox metadata
+    image: ghcr.io/siderolabs/installer:v1.8.3
+    wipe: false
+  features:
+    rbac: true
+    stableHostname: true
+    apidCheckExtKeyUsage: true
+    diskQuotaSupport: true
+    kubePrism:
+      enabled: true
+      port: 7445
+    hostDNS:
+      enabled: true
+      forwardKubeDNSToHost: true
 cluster:
+  id: {{ vault "secret/talos/cluster" "cluster_id" }}
+  secret: {{ vault "secret/talos/cluster" "cluster_secret" }}
   controlPlane:
     endpoint: https://192.168.86.241:6443  # Virtual IP for HA
+  clusterName: k8s.lan
   network:
+    dnsDomain: cluster.local
     cni:
       name: flannel
     podSubnets:
