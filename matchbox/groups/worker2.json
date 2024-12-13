@@ -10,6 +10,7 @@
       "gateway": "192.168.86.1",
       "netmask": "255.255.255.0",
       "storage_ip": "10.44.5.21",
-      "hostname": "worker2"
+      "hostname": "worker2",
+      "nameservers": ["192.168.86.2", "192.168.86.4"]
     }
 }
