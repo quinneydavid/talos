@@ -1,0 +1,44 @@
+# Global network settings
+network:
+  gateway: "192.168.86.1"
+  netmask: "255.255.255.0"
+  nameservers:
+    - "192.168.86.2"
+    - "192.168.86.4"
+
+# Node-specific configurations
+nodes:
+  cp1:
+    mac: "50:6b:8d:96:f7:50"
+    ip: "192.168.86.211"
+    storage_ip: "10.44.5.10"
+    hostname: "cp1"
+    type: "controlplane"
+
+  cp2:
+    mac: "50:6b:8d:96:f7:51"
+    ip: "192.168.86.212"
+    storage_ip: "10.44.5.11"
+    hostname: "cp2"
+    type: "controlplane"
+
+  cp3:
+    mac: "50:6b:8d:96:f7:52"
+    ip: "192.168.86.213"
+    storage_ip: "10.44.5.12"
+    hostname: "cp3"
+    type: "controlplane"
+
+  worker1:
+    mac: "50:6b:8d:96:f7:53"
+    ip: "192.168.86.214"
+    storage_ip: "10.44.5.13"
+    hostname: "worker1"
+    type: "worker"
+
+  worker2:
+    mac: "50:6b:8d:96:f7:54"
+    ip: "192.168.86.215"
+    storage_ip: "10.44.5.14"
+    hostname: "worker2"
+    type: "worker"

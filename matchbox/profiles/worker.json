@@ -13,7 +13,6 @@
         "console=ttyS0",
         "printk.devkmsg=on",
         "talos.platform=metal",
-        "ip=dhcp",
         "talos.config=http://matchbox.lan:8080/assets/worker-${id}.yaml"
       ]
     }

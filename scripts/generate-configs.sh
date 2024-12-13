@@ -7,12 +7,11 @@ set -e
 
 # Directory setup
 MATCHBOX_ASSETS="/var/lib/matchbox/assets"
-MATCHBOX_GROUPS="/var/lib/matchbox/groups"
 mkdir -p "$MATCHBOX_ASSETS"
 
-# Ensure jq is available
-if ! command -v jq > /dev/null 2>&1; then
-    echo "jq is required but not installed"
+# Ensure yq is available
+if ! command -v yq > /dev/null 2>&1; then
+    echo "yq is required but not installed"
     exit 1
 fi
 
@@ -55,20 +54,18 @@ machine:
     wipe: ${WIPE_DISK}
 EOF
 
-# Find all control plane nodes
-CONTROL_PLANE_NODES=$(find "${MATCHBOX_GROUPS}" -name "cp*.json" -exec basename {} .json \;)
-echo "Found control plane nodes: ${CONTROL_PLANE_NODES}"
+# Read global network settings
+GATEWAY=$(yq e '.network.gateway' configs/network-config.yaml)
+NETMASK=$(yq e '.network.netmask' configs/network-config.yaml)
+NAMESERVERS=$(yq e '.network.nameservers | join(",")' configs/network-config.yaml)
 
-# Collect all control plane IPs
+# Get all control plane nodes
 CONTROL_PLANE_IPS=""
-for node in ${CONTROL_PLANE_NODES}; do
-    if [ -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
-        ip=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
-        if [ -z "$CONTROL_PLANE_IPS" ]; then
-            CONTROL_PLANE_IPS="\"$ip\""
-        else
-            CONTROL_PLANE_IPS="$CONTROL_PLANE_IPS,\"$ip\""
-        fi
+for node in $(yq e '.nodes[] | select(.type == "controlplane") | .ip' configs/network-config.yaml); do
+    if [ -z "$CONTROL_PLANE_IPS" ]; then
+        CONTROL_PLANE_IPS="\"$node\""
+    else
+        CONTROL_PLANE_IPS="$CONTROL_PLANE_IPS,\"$node\""
     fi
 done
 
@@ -87,25 +84,16 @@ validate_config() {
     echo "Configuration validation successful for ${node_type}"
 }
 
-# Generate control plane configs
-for node in ${CONTROL_PLANE_NODES}; do
+# Generate configs for all nodes
+for node in $(yq e '.nodes | keys | .[]' configs/network-config.yaml); do
     echo "Generating config for ${node}..."
     
-    # Read node metadata from group file
-    GROUP_FILE="${MATCHBOX_GROUPS}/${node}.json"
-    if [ ! -f "$GROUP_FILE" ]; then
-        echo "Error: Group file for ${node} not found at ${GROUP_FILE}"
-        continue
-    fi
-    
-    echo "Reading metadata from ${GROUP_FILE}"
-    # Extract metadata from group file
-    NODE_IP=$(jq -r '.metadata.ip' "$GROUP_FILE")
-    STORAGE_IP=$(jq -r '.metadata.storage_ip' "$GROUP_FILE")
-    GATEWAY=$(jq -r '.metadata.gateway' "$GROUP_FILE")
-    HOSTNAME=$(jq -r '.metadata.hostname' "$GROUP_FILE")
-    NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "$GROUP_FILE")
-    MAC_ADDRESS=$(jq -r '.selector.mac' "$GROUP_FILE")
+    # Extract node metadata
+    NODE_TYPE=$(yq e ".nodes.${node}.type" configs/network-config.yaml)
+    NODE_IP=$(yq e ".nodes.${node}.ip" configs/network-config.yaml)
+    STORAGE_IP=$(yq e ".nodes.${node}.storage_ip" configs/network-config.yaml)
+    HOSTNAME=$(yq e ".nodes.${node}.hostname" configs/network-config.yaml)
+    MAC_ADDRESS=$(yq e ".nodes.${node}.mac" configs/network-config.yaml)
     
     echo "Extracted metadata for ${HOSTNAME}:"
     echo "  IP: ${NODE_IP}"
@@ -131,8 +119,7 @@ for node in ${CONTROL_PLANE_NODES}; do
                     "routes": [{"network": "0.0.0.0/0", "gateway": "${GATEWAY}"}]
                 }
             ]
-        },
-        "certSANs": ${CERT_SANS}
+        }$(if [ "$NODE_TYPE" = "controlplane" ]; then echo ", \"certSANs\": ${CERT_SANS}"; fi)
     },
     "cluster": {
         "network": {
@@ -143,17 +130,27 @@ for node in ${CONTROL_PLANE_NODES}; do
 }
 EOF
     
-    echo "Generating controlplane config with talosctl..."
+    echo "Generating ${NODE_TYPE} config with talosctl..."
     if [ "$WIPE_DISK" = "true" ]; then
         FORCE_FLAG="--force"
     else
         FORCE_FLAG=""
     fi
     
+    if [ "$NODE_TYPE" = "controlplane" ]; then
+        BASE_FILE="$BASE_CP_FILE"
+        OUTPUT_TYPE="controlplane"
+        CONFIG_FILE="controlplane.yaml"
+    else
+        BASE_FILE="$BASE_WORKER_FILE"
+        OUTPUT_TYPE="worker"
+        CONFIG_FILE="worker.yaml"
+    fi
+    
     talosctl gen config \
         $FORCE_FLAG \
-        --output-types controlplane \
-        --config-patch "$(cat $BASE_CP_FILE)" \
+        --output-types $OUTPUT_TYPE \
+        --config-patch "$(cat $BASE_FILE)" \
         --config-patch "$(cat $PATCH_FILE)" \
         --with-docs=false \
         --dns-domain "${CLUSTER_DNS_DOMAIN}" \
@@ -161,104 +158,14 @@ EOF
         "${CLUSTER_ENDPOINT}"
     
     # Validate the generated config
-    validate_config "controlplane.yaml" "controlplane-${HOSTNAME}" || exit 1
+    validate_config "$CONFIG_FILE" "${NODE_TYPE}-${HOSTNAME}" || exit 1
     
-    OUTPUT_FILE="${MATCHBOX_ASSETS}/controlplane-${HOSTNAME}.yaml"
-    if [ -f controlplane.yaml ]; then
-        echo "Moving controlplane.yaml to ${OUTPUT_FILE}"
-        mv controlplane.yaml "${OUTPUT_FILE}"
+    OUTPUT_FILE="${MATCHBOX_ASSETS}/${NODE_TYPE}-${HOSTNAME}.yaml"
+    if [ -f "$CONFIG_FILE" ]; then
+        echo "Moving ${CONFIG_FILE} to ${OUTPUT_FILE}"
+        mv "$CONFIG_FILE" "${OUTPUT_FILE}"
     else
-        echo "Error: controlplane.yaml was not generated"
-    fi
-    
-    rm "$PATCH_FILE"
-done
-
-# Find all worker nodes
-WORKER_NODES=$(find "${MATCHBOX_GROUPS}" -name "worker*.json" -exec basename {} .json \;)
-echo "Found worker nodes: ${WORKER_NODES}"
-
-# Generate worker configs
-for node in ${WORKER_NODES}; do
-    echo "Generating config for ${node}..."
-    
-    # Read node metadata from group file
-    GROUP_FILE="${MATCHBOX_GROUPS}/${node}.json"
-    if [ ! -f "$GROUP_FILE" ]; then
-        echo "Error: Group file for ${node} not found at ${GROUP_FILE}"
-        continue
-    fi
-    
-    echo "Reading metadata from ${GROUP_FILE}"
-    # Extract metadata from group file
-    NODE_IP=$(jq -r '.metadata.ip' "$GROUP_FILE")
-    STORAGE_IP=$(jq -r '.metadata.storage_ip' "$GROUP_FILE")
-    GATEWAY=$(jq -r '.metadata.gateway' "$GROUP_FILE")
-    HOSTNAME=$(jq -r '.metadata.hostname' "$GROUP_FILE")
-    NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "$GROUP_FILE")
-    MAC_ADDRESS=$(jq -r '.selector.mac' "$GROUP_FILE")
-    
-    echo "Extracted metadata for ${HOSTNAME}:"
-    echo "  IP: ${NODE_IP}"
-    echo "  Storage IP: ${STORAGE_IP}"
-    echo "  Gateway: ${GATEWAY}"
-    echo "  Nameservers: ${NAMESERVERS}"
-    echo "  MAC Address: ${MAC_ADDRESS}"
-    
-    # Create a temporary file for the patch
-    PATCH_FILE=$(mktemp)
-    cat > "$PATCH_FILE" << EOF
-{
-    "machine": {
-        "network": {
-            "hostname": "${HOSTNAME}",
-            "nameservers": [${NAMESERVERS}],
-            "interfaces": [
-                {
-                    "deviceSelector": {
-                        "hardwareAddr": "${MAC_ADDRESS}"
-                    },
-                    "addresses": ["${NODE_IP}/24"],
-                    "routes": [{"network": "0.0.0.0/0", "gateway": "${GATEWAY}"}]
-                }
-            ]
-        }
-    },
-    "cluster": {
-        "network": {
-            "podSubnets": ["${CLUSTER_POD_SUBNET}"],
-            "serviceSubnets": ["${CLUSTER_SERVICE_SUBNET}"]
-        }
-    }
-}
-EOF
-    
-    echo "Generating worker config with talosctl..."
-    if [ "$WIPE_DISK" = "true" ]; then
-        FORCE_FLAG="--force"
-    else
-        FORCE_FLAG=""
-    fi
-    
-    talosctl gen config \
-        $FORCE_FLAG \
-        --output-types worker \
-        --config-patch "$(cat $BASE_WORKER_FILE)" \
-        --config-patch "$(cat $PATCH_FILE)" \
-        --with-docs=false \
-        --dns-domain "${CLUSTER_DNS_DOMAIN}" \
-        "${CLUSTER_NAME}" \
-        "${CLUSTER_ENDPOINT}"
-    
-    # Validate the generated config
-    validate_config "worker.yaml" "worker-${HOSTNAME}" || exit 1
-    
-    OUTPUT_FILE="${MATCHBOX_ASSETS}/worker-${HOSTNAME}.yaml"
-    if [ -f worker.yaml ]; then
-        echo "Moving worker.yaml to ${OUTPUT_FILE}"
-        mv worker.yaml "${OUTPUT_FILE}"
-    else
-        echo "Error: worker.yaml was not generated"
+        echo "Error: ${CONFIG_FILE} was not generated"
     fi
     
     rm "$PATCH_FILE"
