@@ -14,7 +14,7 @@
         "printk.devkmsg=on",
         "talos.platform=metal",
         "ip=dhcp",
-        "talos.config=http://matchbox.lan:8080/metadata?mac=${mac}"
+        "talos.config=http://matchbox.lan:8080/assets/worker-${id}.yaml"
       ]
     }
 }

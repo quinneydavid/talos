@@ -21,7 +21,7 @@ services:
       - CLUSTER_DNS_DOMAIN=cluster.local
       - CLUSTER_POD_SUBNET=10.244.0.0/16
       - CLUSTER_SERVICE_SUBNET=10.96.0.0/12
-      - WIPE_DISK=true  # Set to true to wipe disks during reinstall
+      - WIPE_DISK=false  # Set to false to preserve disks during reinstall
       - TALOS_VERSION=latest  # Set to specific version like v1.5.5 or use latest
     networks:
       - pxe-network
