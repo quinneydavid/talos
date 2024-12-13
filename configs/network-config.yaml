@@ -16,28 +16,28 @@ nodes:
     type: "controlplane"
 
   cp2:
-    mac: "50:6b:8d:96:f7:51"
+    mac: "50:6b:8d:e3:2e:e7"
     ip: "192.168.86.212"
     storage_ip: "10.44.5.11"
     hostname: "cp2"
     type: "controlplane"
 
   cp3:
-    mac: "50:6b:8d:96:f7:52"
+    mac: "50:6b:8d:be:b5:e5"
     ip: "192.168.86.213"
     storage_ip: "10.44.5.12"
     hostname: "cp3"
     type: "controlplane"
 
   worker1:
-    mac: "50:6b:8d:96:f7:53"
+    mac: "50:6b:8d:ff:7b:7e"
     ip: "192.168.86.214"
     storage_ip: "10.44.5.13"
     hostname: "worker1"
     type: "worker"
 
   worker2:
-    mac: "50:6b:8d:96:f7:54"
+    mac: "50:6b:8d:91:08:d3"
     ip: "192.168.86.215"
     storage_ip: "10.44.5.14"
     hostname: "worker2"
