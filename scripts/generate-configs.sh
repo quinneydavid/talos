@@ -6,23 +6,35 @@
 set -e
 
 # Directory setup
-MATCHBOX_ASSETS="../matchbox/assets"
+MATCHBOX_ASSETS="/var/lib/matchbox/assets"
+MATCHBOX_GROUPS="/var/lib/matchbox/groups"
 mkdir -p "$MATCHBOX_ASSETS"
 
+# Install jq if not present
+apk add --no-cache jq
+
 # Read base configurations
-CONTROLPLANE_CONFIG=$(cat ../configs/controlplane.yaml)
-WORKER_CONFIG=$(cat ../configs/worker.yaml)
+CONTROLPLANE_CONFIG=$(cat /configs/controlplane.yaml)
+WORKER_CONFIG=$(cat /configs/worker.yaml)
 
 # Generate control plane configs
-for i in {1..3}; do
-    NODE_IP="192.168.86.21${i}"
-    STORAGE_IP="192.168.87.21${i}"
-    HOSTNAME="cp${i}"
+for node in cp1 cp2 cp3; do
+    echo "Generating config for ${node}..."
+    
+    # Read node metadata from group file
+    if [ ! -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
+        echo "Error: Group file for ${node} not found"
+        continue
+    fi
+    
+    # Extract metadata from group file
+    NODE_IP=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
+    STORAGE_IP=$(jq -r '.metadata.storage_ip' "${MATCHBOX_GROUPS}/${node}.json")
+    GATEWAY=$(jq -r '.metadata.gateway' "${MATCHBOX_GROUPS}/${node}.json")
+    HOSTNAME=$(jq -r '.metadata.hostname' "${MATCHBOX_GROUPS}/${node}.json")
     
     # Node-specific network configuration
-    NODE_PATCH="{\"machine\":{\"network\":{\"hostname\":\"${HOSTNAME}\",\"interfaces\":[{\"interface\":\"eth0\",\"addresses\":[\"${NODE_IP}/24\"],\"routes\":[{\"network\":\"0.0.0.0/0\",\"gateway\":\"192.168.86.1\"}]},{\"interface\":\"eth1\",\"addresses\":[\"${STORAGE_IP}/24\"]}]}}}"
-    
-    echo "Generating config for ${HOSTNAME}..."
+    NODE_PATCH="{\"machine\":{\"network\":{\"hostname\":\"${HOSTNAME}\",\"interfaces\":[{\"interface\":\"eth0\",\"addresses\":[\"${NODE_IP}/24\"],\"routes\":[{\"network\":\"0.0.0.0/0\",\"gateway\":\"${GATEWAY}\"}]},{\"interface\":\"eth1\",\"addresses\":[\"${STORAGE_IP}/24\"]}]}}}"
     
     # Generate config using base controlplane config as patch
     talosctl gen config \
@@ -36,15 +48,23 @@ for i in {1..3}; do
 done
 
 # Generate worker configs
-for i in {1..2}; do
-    NODE_IP="192.168.86.22${i}"
-    STORAGE_IP="192.168.87.22${i}"
-    HOSTNAME="worker${i}"
+for node in worker1 worker2; do
+    echo "Generating config for ${node}..."
+    
+    # Read node metadata from group file
+    if [ ! -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
+        echo "Error: Group file for ${node} not found"
+        continue
+    fi
+    
+    # Extract metadata from group file
+    NODE_IP=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
+    STORAGE_IP=$(jq -r '.metadata.storage_ip' "${MATCHBOX_GROUPS}/${node}.json")
+    GATEWAY=$(jq -r '.metadata.gateway' "${MATCHBOX_GROUPS}/${node}.json")
+    HOSTNAME=$(jq -r '.metadata.hostname' "${MATCHBOX_GROUPS}/${node}.json")
     
     # Node-specific network configuration
-    NODE_PATCH="{\"machine\":{\"network\":{\"hostname\":\"${HOSTNAME}\",\"interfaces\":[{\"interface\":\"eth0\",\"addresses\":[\"${NODE_IP}/24\"],\"routes\":[{\"network\":\"0.0.0.0/0\",\"gateway\":\"192.168.86.1\"}]},{\"interface\":\"eth1\",\"addresses\":[\"${STORAGE_IP}/24\"]}]}}}"
-    
-    echo "Generating config for ${HOSTNAME}..."
+    NODE_PATCH="{\"machine\":{\"network\":{\"hostname\":\"${HOSTNAME}\",\"interfaces\":[{\"interface\":\"eth0\",\"addresses\":[\"${NODE_IP}/24\"],\"routes\":[{\"network\":\"0.0.0.0/0\",\"gateway\":\"${GATEWAY}\"}]},{\"interface\":\"eth1\",\"addresses\":[\"${STORAGE_IP}/24\"]}]}}}"
     
     # Generate config using base worker config as patch
     talosctl gen config \
