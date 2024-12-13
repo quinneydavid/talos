@@ -16,7 +16,8 @@ The system uses a simple, secure approach to manage Talos configurations:
 .
 ├── configs/                    # Base Talos configurations
 │   ├── controlplane.yaml      # Control plane base config
-│   └── worker.yaml            # Worker node base config
+│   ├── worker.yaml            # Worker node base config
+│   └── storage-class.yaml     # Storage class for Synology CSI
 ├── docker/                    # Docker configurations
 │   ├── docker-compose.yml     # Docker Compose configuration
 │   ├── Dockerfile.matchbox    # Matchbox server with talosctl
@@ -49,8 +50,11 @@ machine:
 
 ### Node Configuration
 
-Each node's settings are defined in `matchbox/groups/`:
+Each node's settings are defined in `matchbox/groups/`. Nodes have dual network interfaces:
+- eth0: Primary network (192.168.86.0/24)
+- eth1: Storage network (10.44.5.0/24)
 
+Example node configuration:
 ```json
 {
     "id": "cp1",
@@ -60,14 +64,37 @@ Each node's settings are defined in `matchbox/groups/`:
       "mac": "50:6b:8d:96:f7:50"
     },
     "metadata": {
-      "ip": "192.168.86.211",
+      "ip": "192.168.86.211",        # Primary network IP
       "gateway": "192.168.86.1",
       "netmask": "255.255.255.0",
-      "storage_ip": "10.44.5.10",
+      "storage_ip": "10.44.5.10",    # Storage network IP
       "hostname": "cp1",
       "nameservers": ["192.168.86.2", "192.168.86.4"]
     }
 }
+```
+
+### Storage Configuration
+
+The cluster uses a dedicated storage network for Synology CSI:
+
+1. Each node has a storage network interface (eth1) configured via group files
+2. Storage IPs are in the 10.44.5.0/24 network:
+   - Control plane nodes: 10.44.5.10-12
+   - Worker nodes: 10.44.5.20-21
+   - Synology NAS: 10.44.5.2
+
+The storage class configuration is defined in `configs/storage-class.yaml`:
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: synology-csi
+provisioner: csi.synology.com
+parameters:
+  fsType: ext4
+  location: "10.44.5.2"  # Synology NAS IP on storage network
+  storage_pool: "volume1"
 ```
 
 ## How It Works
@@ -76,6 +103,7 @@ Each node's settings are defined in `matchbox/groups/`:
 2. On startup, it:
    - Downloads profiles and group files from GitHub
    - Generates node configurations using talosctl
+   - Configures both network interfaces
    - Stores configs with secrets in matchbox assets
    - Serves configurations via PXE boot
 
