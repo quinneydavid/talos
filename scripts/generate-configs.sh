@@ -54,9 +54,13 @@ machine:
     wipe: ${WIPE_DISK}
 EOF
 
+# Find all control plane nodes
+CONTROL_PLANE_NODES=$(find "${MATCHBOX_GROUPS}" -name "cp*.json" -exec basename {} .json \;)
+echo "Found control plane nodes: ${CONTROL_PLANE_NODES}"
+
 # Collect all control plane IPs
 declare -a CONTROL_PLANE_IPS
-for node in cp1 cp2 cp3; do
+for node in ${CONTROL_PLANE_NODES}; do
     if [ -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
         ip=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
         CONTROL_PLANE_IPS+=("\"$ip\"")
@@ -79,7 +83,7 @@ validate_config() {
 }
 
 # Generate control plane configs
-for node in cp1 cp2 cp3; do
+for node in ${CONTROL_PLANE_NODES}; do
     echo "Generating config for ${node}..."
     
     # Read node metadata from group file
@@ -158,8 +162,12 @@ EOF
     rm "$PATCH_FILE"
 done
 
+# Find all worker nodes
+WORKER_NODES=$(find "${MATCHBOX_GROUPS}" -name "worker*.json" -exec basename {} .json \;)
+echo "Found worker nodes: ${WORKER_NODES}"
+
 # Generate worker configs
-for node in worker1 worker2; do
+for node in ${WORKER_NODES}; do
     echo "Generating config for ${node}..."
     
     # Read node metadata from group file

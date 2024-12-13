@@ -1,27 +1,4 @@
-FROM alpine:latest as fetcher
-
-RUN apk add --no-cache curl jq
-
-WORKDIR /downloads
-
-# Fetch latest version dynamically
-RUN set -e && \
-    echo "Fetching latest Talos version..." && \
-    TALOS_VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name) && \
-    if [ -z "$TALOS_VERSION" ]; then \
-        echo "Failed to get latest version" && exit 1; \
-    fi && \
-    echo "Latest version: ${TALOS_VERSION}" && \
-    echo "Downloading vmlinuz..." && \
-    curl -fSL --progress-bar -H "Accept: application/octet-stream" -o vmlinuz "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/vmlinuz-amd64" && \
-    echo "Downloading initramfs.xz..." && \
-    curl -fSL --progress-bar -H "Accept: application/octet-stream" -o initramfs.xz "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/initramfs-amd64.xz" && \
-    echo "Downloading talosctl..." && \
-    curl -fSL --progress-bar -H "Accept: application/octet-stream" -o talosctl "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talosctl-linux-amd64" && \
-    chmod +x talosctl && \
-    echo "${TALOS_VERSION}" > version.txt
-
-FROM quay.io/poseidon/matchbox:latest
+FROM alpine:latest
 
 RUN apk add --no-cache curl jq ca-certificates
 
@@ -29,19 +6,41 @@ RUN mkdir -p /var/lib/matchbox/assets \
     /var/lib/matchbox/profiles \
     /var/lib/matchbox/groups
 
-COPY --from=fetcher /downloads/vmlinuz /var/lib/matchbox/assets/vmlinuz
-COPY --from=fetcher /downloads/initramfs.xz /var/lib/matchbox/assets/initramfs.xz
-COPY --from=fetcher /downloads/version.txt /var/lib/matchbox/assets/version.txt
-COPY --from=fetcher /downloads/talosctl /usr/local/bin/talosctl
-
 # Copy base configs and generation script
 COPY configs/controlplane.yaml /configs/controlplane.yaml
 COPY configs/worker.yaml /configs/worker.yaml
 COPY scripts/generate-configs.sh /scripts/generate-configs.sh
 RUN chmod +x /scripts/generate-configs.sh
 
+# Create script to download Talos assets
+RUN echo '#!/bin/sh' > /download-talos.sh && \
+    echo 'set -e' >> /download-talos.sh && \
+    echo '' >> /download-talos.sh && \
+    echo 'VERSION=${TALOS_VERSION:-latest}' >> /download-talos.sh && \
+    echo 'echo "Fetching Talos version: ${VERSION}..."' >> /download-talos.sh && \
+    echo 'if [ "${VERSION}" = "latest" ]; then' >> /download-talos.sh && \
+    echo '    VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name)' >> /download-talos.sh && \
+    echo 'fi' >> /download-talos.sh && \
+    echo 'if [ -z "$VERSION" ]; then' >> /download-talos.sh && \
+    echo '    echo "Failed to get version" && exit 1' >> /download-talos.sh && \
+    echo 'fi' >> /download-talos.sh && \
+    echo 'echo "Using version: ${VERSION}"' >> /download-talos.sh && \
+    echo 'echo "Downloading vmlinuz..."' >> /download-talos.sh && \
+    echo 'curl -fSL --progress-bar -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/vmlinuz "https://github.com/siderolabs/talos/releases/download/${VERSION}/vmlinuz-amd64"' >> /download-talos.sh && \
+    echo 'echo "Downloading initramfs.xz..."' >> /download-talos.sh && \
+    echo 'curl -fSL --progress-bar -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/initramfs.xz "https://github.com/siderolabs/talos/releases/download/${VERSION}/initramfs-amd64.xz"' >> /download-talos.sh && \
+    echo 'echo "Downloading talosctl..."' >> /download-talos.sh && \
+    echo 'curl -fSL --progress-bar -H "Accept: application/octet-stream" -o /usr/local/bin/talosctl "https://github.com/siderolabs/talos/releases/download/${VERSION}/talosctl-linux-amd64"' >> /download-talos.sh && \
+    echo 'chmod +x /usr/local/bin/talosctl' >> /download-talos.sh && \
+    echo 'echo "${VERSION}" > /var/lib/matchbox/assets/version.txt' >> /download-talos.sh && \
+    chmod +x /download-talos.sh
+
+# Create entrypoint script
 RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'set -e' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Download Talos assets' >> /entrypoint.sh && \
+    echo '/download-talos.sh' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Verify required environment variables' >> /entrypoint.sh && \
     echo 'if [ -z "$GITHUB_REPO" ]; then' >> /entrypoint.sh && \
@@ -59,9 +58,15 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'curl -fSL -o /var/lib/matchbox/profiles/worker.json "${GITHUB_REPO}/raw/main/matchbox/profiles/worker.json"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching groups..."' >> /entrypoint.sh && \
-    echo 'for node in cp1 cp2 cp3 worker1 worker2; do' >> /entrypoint.sh && \
-    echo '  echo "Downloading group: $node.json"' >> /entrypoint.sh && \
-    echo '  curl -fSL -o /var/lib/matchbox/groups/$node.json "${GITHUB_REPO}/raw/main/matchbox/groups/$node.json"' >> /entrypoint.sh && \
+    echo 'echo "Finding control plane nodes..."' >> /entrypoint.sh && \
+    echo 'for node in $(curl -s "${GITHUB_REPO}/raw/main/matchbox/groups/" | grep -o "cp[0-9]*.json"); do' >> /entrypoint.sh && \
+    echo '  echo "Downloading group: $node"' >> /entrypoint.sh && \
+    echo '  curl -fSL -o "/var/lib/matchbox/groups/$node" "${GITHUB_REPO}/raw/main/matchbox/groups/$node"' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo 'echo "Finding worker nodes..."' >> /entrypoint.sh && \
+    echo 'for node in $(curl -s "${GITHUB_REPO}/raw/main/matchbox/groups/" | grep -o "worker[0-9]*.json"); do' >> /entrypoint.sh && \
+    echo '  echo "Downloading group: $node"' >> /entrypoint.sh && \
+    echo '  curl -fSL -o "/var/lib/matchbox/groups/$node" "${GITHUB_REPO}/raw/main/matchbox/groups/$node"' >> /entrypoint.sh && \
     echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
@@ -69,5 +74,8 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'exec /matchbox -address=0.0.0.0:8080 "$@"' >> /entrypoint.sh && \
     chmod +x /entrypoint.sh
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
