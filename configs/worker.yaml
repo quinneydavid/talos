@@ -1,4 +1,0 @@
-machine:
-  type: worker
-  install:
-    disk: /dev/sda

@@ -1,6 +1,6 @@
 FROM alpine:latest
 
-RUN apk add --no-cache curl jq ca-certificates
+RUN apk add --no-cache curl jq ca-certificates yq
 
 # Create required directories
 RUN mkdir -p /var/lib/matchbox/assets \
@@ -9,9 +9,8 @@ RUN mkdir -p /var/lib/matchbox/assets \
     /configs \
     /scripts
 
-# Copy base configs and generation script
-COPY configs/controlplane.yaml /configs/controlplane.yaml
-COPY configs/worker.yaml /configs/worker.yaml
+# Copy network config and generation script
+COPY configs/network-config.yaml /configs/network-config.yaml
 COPY scripts/generate-configs.sh /scripts/generate-configs.sh
 RUN chmod +x /scripts/generate-configs.sh
 
