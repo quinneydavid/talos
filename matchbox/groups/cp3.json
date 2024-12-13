@@ -1,8 +1,0 @@
-{
-    "id": "cp3",
-    "name": "Control Plane Node 3",
-    "profile": "control-plane",
-    "selector": {
-      "mac": "50:6b:8d:be:b5:e5"
-    }
-}

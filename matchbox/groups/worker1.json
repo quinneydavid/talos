@@ -1,8 +1,0 @@
-{
-    "id": "worker1",
-    "name": "Worker Node 1",
-    "profile": "worker",
-    "selector": {
-      "mac": "50:6b:8d:ff:7b:7e"
-    }
-}
