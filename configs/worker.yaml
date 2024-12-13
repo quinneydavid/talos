@@ -1,55 +1,17 @@
-version: v1alpha1
-debug: false
-persist: true
 machine:
   type: worker
-  token: {{ vault "secret/talos/cluster" "machine_token" }}
-  ca:
-    crt: {{ vault "secret/talos/pki" "ca_crt" }}
-  kubelet:
-    image: ghcr.io/siderolabs/kubelet:v1.31.2
-    defaultRuntimeSeccompProfileEnabled: true
-    disableManifestsDirectory: true
   network:
-    hostname: {{ .hostname }}
-    interfaces:
-      - interface: eth0  # Production network
-        addresses:
-          - {{ .ip }}/24  # Gets IP from matchbox metadata
-        routes:
-          - network: 0.0.0.0/0
-            gateway: {{ .gateway }}
-      - interface: eth1  # Storage network
-        addresses:
-          - {{ .storage_ip }}/24
     nameservers:
       - 192.168.86.2
       - 192.168.86.4
   install:
     disk: /dev/sda
-    image: ghcr.io/siderolabs/installer:v1.8.3
-    wipe: false
-  features:
-    rbac: true
-    stableHostname: true
-    apidCheckExtKeyUsage: true
-    diskQuotaSupport: true
-    kubePrism:
-      enabled: true
-      port: 7445
-    hostDNS:
-      enabled: true
-      forwardKubeDNSToHost: true
 cluster:
-  id: {{ vault "secret/talos/cluster" "cluster_id" }}
-  secret: {{ vault "secret/talos/cluster" "cluster_secret" }}
+  name: talos-k8s-metal-tutorial
   controlPlane:
-    endpoint: https://192.168.86.241:6443  # Virtual IP for HA
-  clusterName: k8s.lan
+    endpoint: https://192.168.86.241:6443
   network:
     dnsDomain: cluster.local
-    cni:
-      name: flannel
     podSubnets:
       - 10.244.0.0/16
     serviceSubnets:

@@ -1,15 +1,21 @@
-# Ignore files with secrets
-controlplane-cp1.yaml
-worker-worker1.yaml
-.env
-*.key
-*.crt
-commands
+# Generated Talos configs (contain secrets)
+matchbox/assets/*.yaml
 
-# Ignore generated files
-/tmp/
-
-# Ignore system files
+# OS files
 .DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
 *.swp
 *.swo
+
+# Temp files
+*.tmp
+*.temp
+tmp/
+
+# Old/backup files
+*.bak
+*.old

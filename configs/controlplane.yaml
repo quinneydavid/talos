@@ -1,69 +1,28 @@
-version: v1alpha1
-debug: false
-persist: true
 machine:
   type: controlplane
-  token: {{ .machine_token }}
-  ca:
-    crt: {{ vault "secret/talos/pki" "ca_crt" }}
-    key: {{ vault "secret/talos/pki" "ca_key" }}
-  certSANs:
-    - "192.168.86.211"  # First control plane node
-    - "192.168.86.212"  # Second control plane node
-    - "192.168.86.213"  # Third control plane node
-    - "192.168.86.241"  # Virtual IP for HA
-  kubelet:
-    image: ghcr.io/siderolabs/kubelet:v1.31.2
-    defaultRuntimeSeccompProfileEnabled: true
-    disableManifestsDirectory: true
   network:
-    hostname: {{ .hostname }}
-    interfaces:
-      - interface: eth0  # Production network
-        addresses:
-          - {{ .ip }}/24  # Gets IP from matchbox metadata
-        routes:
-          - network: 0.0.0.0/0
-            gateway: {{ .gateway }}
-      - interface: eth1  # Storage network
-        addresses:
-          - {{ .storage_ip }}/24
     nameservers:
       - 192.168.86.2
       - 192.168.86.4
   install:
     disk: /dev/sda
-    image: ghcr.io/siderolabs/installer:v1.8.3
-    wipe: false
-  features:
-    rbac: true
-    stableHostname: true
-    apidCheckExtKeyUsage: true
-    diskQuotaSupport: true
-    kubePrism:
-      enabled: true
-      port: 7445
-    hostDNS:
-      enabled: true
-      forwardKubeDNSToHost: true
-  nodeLabels:
-    node.kubernetes.io/exclude-from-external-load-balancers: ""
+  certSANs:
+    - "192.168.86.211"
+    - "192.168.86.212"
+    - "192.168.86.213"
+    - "192.168.86.241"
 cluster:
-  id: {{ vault "secret/talos/cluster" "cluster_id" }}
-  secret: {{ vault "secret/talos/cluster" "cluster_secret" }}
+  name: talos-k8s-metal-tutorial
   controlPlane:
-    endpoint: https://192.168.86.241:6443  # Virtual IP for HA
-  clusterName: k8s.lan
+    endpoint: https://192.168.86.241:6443
   network:
     dnsDomain: cluster.local
-    cni:
-      name: flannel
     podSubnets:
       - 10.244.0.0/16
     serviceSubnets:
       - 10.96.0.0/12
-  proxy:
-    disabled: true
-  etcd:
-    advertisedSubnets:
-      - 192.168.86.0/24  # Use production network for etcd
+  apiServer:
+    image: registry.k8s.io/kube-apiserver:v1.31.2
+    certSANs:
+      - 192.168.86.241
+    disablePodSecurityPolicy: true

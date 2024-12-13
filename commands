@@ -1,0 +1,6 @@
+# bring up/down containers
+cd ~/vscode/talos/docker && docker-compose down && docker-compose up
+
+
+#rebuild env
+cd ~/vscode/talos/docker && docker-compose down && docker-compose build matchbox && docker-compose up
