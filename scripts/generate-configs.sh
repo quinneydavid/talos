@@ -105,12 +105,14 @@ for node in ${CONTROL_PLANE_NODES}; do
     GATEWAY=$(jq -r '.metadata.gateway' "$GROUP_FILE")
     HOSTNAME=$(jq -r '.metadata.hostname' "$GROUP_FILE")
     NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "$GROUP_FILE")
+    MAC_ADDRESS=$(jq -r '.selector.mac' "$GROUP_FILE")
     
     echo "Extracted metadata for ${HOSTNAME}:"
     echo "  IP: ${NODE_IP}"
     echo "  Storage IP: ${STORAGE_IP}"
     echo "  Gateway: ${GATEWAY}"
     echo "  Nameservers: ${NAMESERVERS}"
+    echo "  MAC Address: ${MAC_ADDRESS}"
     
     # Create a temporary file for the patch
     PATCH_FILE=$(mktemp)
@@ -122,13 +124,11 @@ for node in ${CONTROL_PLANE_NODES}; do
             "nameservers": [${NAMESERVERS}],
             "interfaces": [
                 {
-                    "interface": "eth0",
+                    "deviceSelector": {
+                        "hardwareAddr": "${MAC_ADDRESS}"
+                    },
                     "addresses": ["${NODE_IP}/24"],
                     "routes": [{"network": "0.0.0.0/0", "gateway": "${GATEWAY}"}]
-                },
-                {
-                    "interface": "eth1",
-                    "addresses": ["${STORAGE_IP}/24"]
                 }
             ]
         },
@@ -196,12 +196,14 @@ for node in ${WORKER_NODES}; do
     GATEWAY=$(jq -r '.metadata.gateway' "$GROUP_FILE")
     HOSTNAME=$(jq -r '.metadata.hostname' "$GROUP_FILE")
     NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "$GROUP_FILE")
+    MAC_ADDRESS=$(jq -r '.selector.mac' "$GROUP_FILE")
     
     echo "Extracted metadata for ${HOSTNAME}:"
     echo "  IP: ${NODE_IP}"
     echo "  Storage IP: ${STORAGE_IP}"
     echo "  Gateway: ${GATEWAY}"
     echo "  Nameservers: ${NAMESERVERS}"
+    echo "  MAC Address: ${MAC_ADDRESS}"
     
     # Create a temporary file for the patch
     PATCH_FILE=$(mktemp)
@@ -213,13 +215,11 @@ for node in ${WORKER_NODES}; do
             "nameservers": [${NAMESERVERS}],
             "interfaces": [
                 {
-                    "interface": "eth0",
+                    "deviceSelector": {
+                        "hardwareAddr": "${MAC_ADDRESS}"
+                    },
                     "addresses": ["${NODE_IP}/24"],
                     "routes": [{"network": "0.0.0.0/0", "gateway": "${GATEWAY}"}]
-                },
-                {
-                    "interface": "eth1",
-                    "addresses": ["${STORAGE_IP}/24"]
                 }
             ]
         }
