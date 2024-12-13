@@ -2,8 +2,8 @@
     "id": "control-plane",
     "name": "control-plane",
     "boot": {
-      "kernel": "/assets/vmlinuz",
-      "initrd": ["/assets/initramfs.xz"],
+      "kernel": "vmlinuz",
+      "initrd": ["initramfs.xz"],
       "args": [
         "initrd=initramfs.xz",
         "init_on_alloc=1",
