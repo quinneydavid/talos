@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Script to generate Talos configurations using base configs as patches
-# The generated configs with secrets will only be stored on the matchbox server
+# Script to generate Talos configurations using talosctl
+# This generates configs with secrets that should only be stored on the matchbox server
 
 set -e
 
@@ -10,78 +10,112 @@ MATCHBOX_ASSETS="/var/lib/matchbox/assets"
 MATCHBOX_GROUPS="/var/lib/matchbox/groups"
 mkdir -p "$MATCHBOX_ASSETS"
 
-# Install jq if not present
-apk add --no-cache jq
+# Ensure jq is available
+if ! command -v jq &> /dev/null; then
+    echo "jq is required but not installed"
+    exit 1
+fi
 
-# Read base configurations
-CONTROLPLANE_CONFIG=$(cat /configs/controlplane.yaml)
-WORKER_CONFIG=$(cat /configs/worker.yaml)
+echo "Generating Talos configurations..."
 
-# Collect all control plane IPs for certSANs
-CONTROL_PLANE_IPS=()
+# Create base config files
+BASE_CP_FILE=$(mktemp)
+cat > "$BASE_CP_FILE" << EOF
+machine:
+  type: controlplane
+  install:
+    disk: /dev/sda
+EOF
+
+BASE_WORKER_FILE=$(mktemp)
+cat > "$BASE_WORKER_FILE" << EOF
+machine:
+  type: worker
+  install:
+    disk: /dev/sda
+EOF
+
+# Collect all control plane IPs
+declare -a CONTROL_PLANE_IPS
 for node in cp1 cp2 cp3; do
     if [ -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
         ip=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
-        CONTROL_PLANE_IPS+=($ip)
+        CONTROL_PLANE_IPS+=("\"$ip\"")
     fi
 done
+
+# Join IPs with commas
+CERT_SANS=$(IFS=,; echo "[${CONTROL_PLANE_IPS[*]}, \"api.k8s.lan\"]")
 
 # Generate control plane configs
 for node in cp1 cp2 cp3; do
     echo "Generating config for ${node}..."
     
     # Read node metadata from group file
-    if [ ! -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
-        echo "Error: Group file for ${node} not found"
+    GROUP_FILE="${MATCHBOX_GROUPS}/${node}.json"
+    if [ ! -f "$GROUP_FILE" ]; then
+        echo "Error: Group file for ${node} not found at ${GROUP_FILE}"
         continue
     fi
     
+    echo "Reading metadata from ${GROUP_FILE}"
     # Extract metadata from group file
-    NODE_IP=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
-    STORAGE_IP=$(jq -r '.metadata.storage_ip' "${MATCHBOX_GROUPS}/${node}.json")
-    GATEWAY=$(jq -r '.metadata.gateway' "${MATCHBOX_GROUPS}/${node}.json")
-    HOSTNAME=$(jq -r '.metadata.hostname' "${MATCHBOX_GROUPS}/${node}.json")
-    NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "${MATCHBOX_GROUPS}/${node}.json")
+    NODE_IP=$(jq -r '.metadata.ip' "$GROUP_FILE")
+    STORAGE_IP=$(jq -r '.metadata.storage_ip' "$GROUP_FILE")
+    GATEWAY=$(jq -r '.metadata.gateway' "$GROUP_FILE")
+    HOSTNAME=$(jq -r '.metadata.hostname' "$GROUP_FILE")
+    NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "$GROUP_FILE")
     
-    # Create certSANs array with both IPs and DNS names
-    CERT_SANS_JSON=$(printf '%s\n' "${CONTROL_PLANE_IPS[@]}" "api.k8s.lan" | jq -R . | jq -s .)
+    echo "Extracted metadata for ${HOSTNAME}:"
+    echo "  IP: ${NODE_IP}"
+    echo "  Storage IP: ${STORAGE_IP}"
+    echo "  Gateway: ${GATEWAY}"
+    echo "  Nameservers: ${NAMESERVERS}"
     
-    # Node-specific network configuration
-    NODE_PATCH="{
-        \"machine\": {
-            \"network\": {
-                \"hostname\": \"${HOSTNAME}\",
-                \"nameservers\": [${NAMESERVERS}],
-                \"interfaces\": [
-                    {
-                        \"interface\": \"eth0\",
-                        \"addresses\": [\"${NODE_IP}/24\"],
-                        \"routes\": [{\"network\": \"0.0.0.0/0\", \"gateway\": \"${GATEWAY}\"}]
-                    },
-                    {
-                        \"interface\": \"eth1\",
-                        \"addresses\": [\"${STORAGE_IP}/24\"]
-                    }
-                ]
-            },
-            \"certSANs\": ${CERT_SANS_JSON}
+    # Create a temporary file for the patch
+    PATCH_FILE=$(mktemp)
+    cat > "$PATCH_FILE" << EOF
+{
+    "machine": {
+        "network": {
+            "hostname": "${HOSTNAME}",
+            "nameservers": [${NAMESERVERS}],
+            "interfaces": [
+                {
+                    "interface": "eth0",
+                    "addresses": ["${NODE_IP}/24"],
+                    "routes": [{"network": "0.0.0.0/0", "gateway": "${GATEWAY}"}]
+                },
+                {
+                    "interface": "eth1",
+                    "addresses": ["${STORAGE_IP}/24"]
+                }
+            ]
         },
-        \"cluster\": {
-            \"apiServer\": {
-                \"certSANs\": ${CERT_SANS_JSON}
-            }
-        }
-    }"
+        "certSANs": ${CERT_SANS}
+    }
+}
+EOF
     
-    # Generate config using base controlplane config as patch
+    echo "Generating controlplane config with talosctl..."
     talosctl gen config \
-        --with-secrets \
+        --output-types controlplane \
+        --config-patch "$(cat $BASE_CP_FILE)" \
+        --config-patch "$(cat $PATCH_FILE)" \
         --with-docs=false \
-        --config-patch "${CONTROLPLANE_CONFIG}" \
-        --config-patch "${NODE_PATCH}" \
-        k8s.lan https://api.k8s.lan:6443
+        --dns-domain cluster.local \
+        k8s.lan \
+        https://api.k8s.lan:6443
     
-    mv controlplane.yaml "${MATCHBOX_ASSETS}/controlplane-${HOSTNAME}.yaml"
+    OUTPUT_FILE="${MATCHBOX_ASSETS}/controlplane-${HOSTNAME}.yaml"
+    if [ -f controlplane.yaml ]; then
+        echo "Moving controlplane.yaml to ${OUTPUT_FILE}"
+        mv controlplane.yaml "${OUTPUT_FILE}"
+    else
+        echo "Error: controlplane.yaml was not generated"
+    fi
+    
+    rm "$PATCH_FILE"
 done
 
 # Generate worker configs
@@ -89,52 +123,73 @@ for node in worker1 worker2; do
     echo "Generating config for ${node}..."
     
     # Read node metadata from group file
-    if [ ! -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
-        echo "Error: Group file for ${node} not found"
+    GROUP_FILE="${MATCHBOX_GROUPS}/${node}.json"
+    if [ ! -f "$GROUP_FILE" ]; then
+        echo "Error: Group file for ${node} not found at ${GROUP_FILE}"
         continue
     fi
     
+    echo "Reading metadata from ${GROUP_FILE}"
     # Extract metadata from group file
-    NODE_IP=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
-    STORAGE_IP=$(jq -r '.metadata.storage_ip' "${MATCHBOX_GROUPS}/${node}.json")
-    GATEWAY=$(jq -r '.metadata.gateway' "${MATCHBOX_GROUPS}/${node}.json")
-    HOSTNAME=$(jq -r '.metadata.hostname' "${MATCHBOX_GROUPS}/${node}.json")
-    NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "${MATCHBOX_GROUPS}/${node}.json")
+    NODE_IP=$(jq -r '.metadata.ip' "$GROUP_FILE")
+    STORAGE_IP=$(jq -r '.metadata.storage_ip' "$GROUP_FILE")
+    GATEWAY=$(jq -r '.metadata.gateway' "$GROUP_FILE")
+    HOSTNAME=$(jq -r '.metadata.hostname' "$GROUP_FILE")
+    NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "$GROUP_FILE")
     
-    # Node-specific network configuration
-    NODE_PATCH="{
-        \"machine\": {
-            \"network\": {
-                \"hostname\": \"${HOSTNAME}\",
-                \"nameservers\": [${NAMESERVERS}],
-                \"interfaces\": [
-                    {
-                        \"interface\": \"eth0\",
-                        \"addresses\": [\"${NODE_IP}/24\"],
-                        \"routes\": [{\"network\": \"0.0.0.0/0\", \"gateway\": \"${GATEWAY}\"}]
-                    },
-                    {
-                        \"interface\": \"eth1\",
-                        \"addresses\": [\"${STORAGE_IP}/24\"]
-                    }
-                ]
-            }
+    echo "Extracted metadata for ${HOSTNAME}:"
+    echo "  IP: ${NODE_IP}"
+    echo "  Storage IP: ${STORAGE_IP}"
+    echo "  Gateway: ${GATEWAY}"
+    echo "  Nameservers: ${NAMESERVERS}"
+    
+    # Create a temporary file for the patch
+    PATCH_FILE=$(mktemp)
+    cat > "$PATCH_FILE" << EOF
+{
+    "machine": {
+        "network": {
+            "hostname": "${HOSTNAME}",
+            "nameservers": [${NAMESERVERS}],
+            "interfaces": [
+                {
+                    "interface": "eth0",
+                    "addresses": ["${NODE_IP}/24"],
+                    "routes": [{"network": "0.0.0.0/0", "gateway": "${GATEWAY}"}]
+                },
+                {
+                    "interface": "eth1",
+                    "addresses": ["${STORAGE_IP}/24"]
+                }
+            ]
         }
-    }"
+    }
+}
+EOF
     
-    # Generate config using base worker config as patch
+    echo "Generating worker config with talosctl..."
     talosctl gen config \
-        --with-secrets \
+        --output-types worker \
+        --config-patch "$(cat $BASE_WORKER_FILE)" \
+        --config-patch "$(cat $PATCH_FILE)" \
         --with-docs=false \
-        --config-patch "${WORKER_CONFIG}" \
-        --config-patch "${NODE_PATCH}" \
-        k8s.lan https://api.k8s.lan:6443
+        --dns-domain cluster.local \
+        k8s.lan \
+        https://api.k8s.lan:6443
     
-    mv worker.yaml "${MATCHBOX_ASSETS}/worker-${HOSTNAME}.yaml"
+    OUTPUT_FILE="${MATCHBOX_ASSETS}/worker-${HOSTNAME}.yaml"
+    if [ -f worker.yaml ]; then
+        echo "Moving worker.yaml to ${OUTPUT_FILE}"
+        mv worker.yaml "${OUTPUT_FILE}"
+    else
+        echo "Error: worker.yaml was not generated"
+    fi
+    
+    rm "$PATCH_FILE"
 done
 
-# Clean up talosconfig since we don't need it
-rm -f talosconfig
+# Clean up
+rm -f talosconfig "$BASE_CP_FILE" "$BASE_WORKER_FILE" 2>/dev/null || true
 
-echo "Configuration generation complete! Configs are stored in $MATCHBOX_ASSETS"
-echo "Note: The generated configs contain secrets and should only be stored on the matchbox server."
+echo -e "\nGenerated files in $MATCHBOX_ASSETS:"
+ls -l "$MATCHBOX_ASSETS"

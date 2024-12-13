@@ -27,9 +27,7 @@ RUN apk add --no-cache curl jq ca-certificates
 
 RUN mkdir -p /var/lib/matchbox/assets \
     /var/lib/matchbox/profiles \
-    /var/lib/matchbox/groups \
-    /configs \
-    /scripts
+    /var/lib/matchbox/groups
 
 COPY --from=fetcher /downloads/vmlinuz /var/lib/matchbox/assets/vmlinuz
 COPY --from=fetcher /downloads/initramfs.xz /var/lib/matchbox/assets/initramfs.xz
@@ -67,7 +65,7 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
-    echo 'cd /scripts && ./generate-configs.sh' >> /entrypoint.sh && \
+    echo '/scripts/generate-configs.sh' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'exec /matchbox -address=0.0.0.0:8080 "$@"' >> /entrypoint.sh && \
     chmod +x /entrypoint.sh
