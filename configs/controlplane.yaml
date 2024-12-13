@@ -1,20 +1,11 @@
 machine:
   type: controlplane
-  network:
-    nameservers:
-      - 192.168.86.2
-      - 192.168.86.4
   install:
     disk: /dev/sda
-  certSANs:
-    - "192.168.86.211"
-    - "192.168.86.212"
-    - "192.168.86.213"
-    - "192.168.86.241"
 cluster:
-  name: talos-k8s-metal-tutorial
+  name: k8s.lan
   controlPlane:
-    endpoint: https://192.168.86.241:6443
+    endpoint: https://api.k8s.lan:6443
   network:
     dnsDomain: cluster.local
     podSubnets:
@@ -22,7 +13,4 @@ cluster:
     serviceSubnets:
       - 10.96.0.0/12
   apiServer:
-    image: registry.k8s.io/kube-apiserver:v1.31.2
-    certSANs:
-      - 192.168.86.241
     disablePodSecurityPolicy: true

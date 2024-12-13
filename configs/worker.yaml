@@ -1,15 +1,11 @@
 machine:
   type: worker
-  network:
-    nameservers:
-      - 192.168.86.2
-      - 192.168.86.4
   install:
     disk: /dev/sda
 cluster:
-  name: talos-k8s-metal-tutorial
+  name: k8s.lan
   controlPlane:
-    endpoint: https://192.168.86.241:6443
+    endpoint: https://api.k8s.lan:6443
   network:
     dnsDomain: cluster.local
     podSubnets:

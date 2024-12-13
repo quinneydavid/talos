@@ -17,6 +17,15 @@ apk add --no-cache jq
 CONTROLPLANE_CONFIG=$(cat /configs/controlplane.yaml)
 WORKER_CONFIG=$(cat /configs/worker.yaml)
 
+# Collect all control plane IPs for certSANs
+CONTROL_PLANE_IPS=()
+for node in cp1 cp2 cp3; do
+    if [ -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
+        ip=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
+        CONTROL_PLANE_IPS+=($ip)
+    fi
+done
+
 # Generate control plane configs
 for node in cp1 cp2 cp3; do
     echo "Generating config for ${node}..."
@@ -32,9 +41,37 @@ for node in cp1 cp2 cp3; do
     STORAGE_IP=$(jq -r '.metadata.storage_ip' "${MATCHBOX_GROUPS}/${node}.json")
     GATEWAY=$(jq -r '.metadata.gateway' "${MATCHBOX_GROUPS}/${node}.json")
     HOSTNAME=$(jq -r '.metadata.hostname' "${MATCHBOX_GROUPS}/${node}.json")
+    NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "${MATCHBOX_GROUPS}/${node}.json")
+    
+    # Create certSANs array with both IPs and DNS names
+    CERT_SANS_JSON=$(printf '%s\n' "${CONTROL_PLANE_IPS[@]}" "api.k8s.lan" | jq -R . | jq -s .)
     
     # Node-specific network configuration
-    NODE_PATCH="{\"machine\":{\"network\":{\"hostname\":\"${HOSTNAME}\",\"interfaces\":[{\"interface\":\"eth0\",\"addresses\":[\"${NODE_IP}/24\"],\"routes\":[{\"network\":\"0.0.0.0/0\",\"gateway\":\"${GATEWAY}\"}]},{\"interface\":\"eth1\",\"addresses\":[\"${STORAGE_IP}/24\"]}]}}}"
+    NODE_PATCH="{
+        \"machine\": {
+            \"network\": {
+                \"hostname\": \"${HOSTNAME}\",
+                \"nameservers\": [${NAMESERVERS}],
+                \"interfaces\": [
+                    {
+                        \"interface\": \"eth0\",
+                        \"addresses\": [\"${NODE_IP}/24\"],
+                        \"routes\": [{\"network\": \"0.0.0.0/0\", \"gateway\": \"${GATEWAY}\"}]
+                    },
+                    {
+                        \"interface\": \"eth1\",
+                        \"addresses\": [\"${STORAGE_IP}/24\"]
+                    }
+                ]
+            },
+            \"certSANs\": ${CERT_SANS_JSON}
+        },
+        \"cluster\": {
+            \"apiServer\": {
+                \"certSANs\": ${CERT_SANS_JSON}
+            }
+        }
+    }"
     
     # Generate config using base controlplane config as patch
     talosctl gen config \
@@ -42,7 +79,7 @@ for node in cp1 cp2 cp3; do
         --with-docs=false \
         --config-patch "${CONTROLPLANE_CONFIG}" \
         --config-patch "${NODE_PATCH}" \
-        talos-k8s-metal-tutorial https://192.168.86.241:6443
+        k8s.lan https://api.k8s.lan:6443
     
     mv controlplane.yaml "${MATCHBOX_ASSETS}/controlplane-${HOSTNAME}.yaml"
 done
@@ -62,9 +99,28 @@ for node in worker1 worker2; do
     STORAGE_IP=$(jq -r '.metadata.storage_ip' "${MATCHBOX_GROUPS}/${node}.json")
     GATEWAY=$(jq -r '.metadata.gateway' "${MATCHBOX_GROUPS}/${node}.json")
     HOSTNAME=$(jq -r '.metadata.hostname' "${MATCHBOX_GROUPS}/${node}.json")
+    NAMESERVERS=$(jq -r '.metadata.nameservers | join(",")' "${MATCHBOX_GROUPS}/${node}.json")
     
     # Node-specific network configuration
-    NODE_PATCH="{\"machine\":{\"network\":{\"hostname\":\"${HOSTNAME}\",\"interfaces\":[{\"interface\":\"eth0\",\"addresses\":[\"${NODE_IP}/24\"],\"routes\":[{\"network\":\"0.0.0.0/0\",\"gateway\":\"${GATEWAY}\"}]},{\"interface\":\"eth1\",\"addresses\":[\"${STORAGE_IP}/24\"]}]}}}"
+    NODE_PATCH="{
+        \"machine\": {
+            \"network\": {
+                \"hostname\": \"${HOSTNAME}\",
+                \"nameservers\": [${NAMESERVERS}],
+                \"interfaces\": [
+                    {
+                        \"interface\": \"eth0\",
+                        \"addresses\": [\"${NODE_IP}/24\"],
+                        \"routes\": [{\"network\": \"0.0.0.0/0\", \"gateway\": \"${GATEWAY}\"}]
+                    },
+                    {
+                        \"interface\": \"eth1\",
+                        \"addresses\": [\"${STORAGE_IP}/24\"]
+                    }
+                ]
+            }
+        }
+    }"
     
     # Generate config using base worker config as patch
     talosctl gen config \
@@ -72,7 +128,7 @@ for node in worker1 worker2; do
         --with-docs=false \
         --config-patch "${WORKER_CONFIG}" \
         --config-patch "${NODE_PATCH}" \
-        talos-k8s-metal-tutorial https://192.168.86.241:6443
+        k8s.lan https://api.k8s.lan:6443
     
     mv worker.yaml "${MATCHBOX_ASSETS}/worker-${HOSTNAME}.yaml"
 done
