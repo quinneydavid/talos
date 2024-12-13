@@ -1,12 +1,29 @@
 FROM alpine:latest
 
-RUN apk add --no-cache dnsmasq
+RUN apk add --no-cache dnsmasq syslinux
 
 # Create required directories
-RUN mkdir -p /var/lib/tftpboot
+RUN mkdir -p /var/lib/tftpboot/pxelinux.cfg
 
-# Configure dnsmasq for TFTP only
-RUN printf 'enable-tftp\ntftp-root=/var/lib/tftpboot\ndhcp-boot=vmlinuz\nlog-queries\n' > /etc/dnsmasq.conf
+# Copy necessary PXE boot files
+RUN cp /usr/share/syslinux/lpxelinux.0 /var/lib/tftpboot/ && \
+    cp /usr/share/syslinux/ldlinux.c32 /var/lib/tftpboot/
+
+# Configure dnsmasq for TFTP
+RUN printf 'enable-tftp\n\
+tftp-root=/var/lib/tftpboot\n\
+dhcp-match=set:bios,60,PXEClient:Arch:00000\n\
+dhcp-boot=tag:bios,lpxelinux.0\n\
+dhcp-match=set:efi64,60,PXEClient:Arch:00007\n\
+dhcp-boot=tag:efi64,vmlinuz,,,talos.platform=metal slab_nomerge pti=on initrd=initramfs.xz talos.config=http://matchbox.lan:8080/metadata?mac=${mac}\n\
+log-queries\n' > /etc/dnsmasq.conf
+
+# Create default PXE boot configuration
+RUN mkdir -p /var/lib/tftpboot/pxelinux.cfg && \
+    printf 'DEFAULT talos\n\
+LABEL talos\n\
+    KERNEL vmlinuz\n\
+    APPEND initrd=initramfs.xz talos.platform=metal slab_nomerge pti=on talos.config=http://matchbox.lan:8080/metadata?mac=${mac}\n' > /var/lib/tftpboot/pxelinux.cfg/default
 
 # Create entrypoint script
 RUN echo '#!/bin/sh' > /entrypoint.sh && \
