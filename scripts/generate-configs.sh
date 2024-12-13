@@ -16,7 +16,24 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
+# Verify required environment variables
+for var in CLUSTER_NAME CLUSTER_ENDPOINT CLUSTER_DNS_DOMAIN CLUSTER_POD_SUBNET CLUSTER_SERVICE_SUBNET; do
+    if [ -z "${!var}" ]; then
+        echo "Error: $var environment variable must be set"
+        exit 1
+    fi
+done
+
+# Default to not wiping disks if not specified
+WIPE_DISK=${WIPE_DISK:-false}
+
 echo "Generating Talos configurations..."
+echo "Cluster Name: $CLUSTER_NAME"
+echo "Endpoint: $CLUSTER_ENDPOINT"
+echo "DNS Domain: $CLUSTER_DNS_DOMAIN"
+echo "Pod Subnet: $CLUSTER_POD_SUBNET"
+echo "Service Subnet: $CLUSTER_SERVICE_SUBNET"
+echo "Wipe Disk: $WIPE_DISK"
 
 # Create base config files
 BASE_CP_FILE=$(mktemp)
@@ -25,6 +42,7 @@ machine:
   type: controlplane
   install:
     disk: /dev/sda
+    wipe: ${WIPE_DISK}
 EOF
 
 BASE_WORKER_FILE=$(mktemp)
@@ -33,6 +51,7 @@ machine:
   type: worker
   install:
     disk: /dev/sda
+    wipe: ${WIPE_DISK}
 EOF
 
 # Collect all control plane IPs
@@ -45,7 +64,19 @@ for node in cp1 cp2 cp3; do
 done
 
 # Join IPs with commas
-CERT_SANS=$(IFS=,; echo "[${CONTROL_PLANE_IPS[*]}, \"api.k8s.lan\"]")
+CERT_SANS=$(IFS=,; echo "[${CONTROL_PLANE_IPS[*]}, \"api.${CLUSTER_NAME}\"]")
+
+# Function to validate config
+validate_config() {
+    local config_file="$1"
+    local node_type="$2"
+    echo "Validating ${node_type} config..."
+    if ! talosctl validate -c "$config_file" -v; then
+        echo "Error: Configuration validation failed for ${node_type}"
+        return 1
+    fi
+    echo "Configuration validation successful for ${node_type}"
+}
 
 # Generate control plane configs
 for node in cp1 cp2 cp3; do
@@ -93,6 +124,12 @@ for node in cp1 cp2 cp3; do
             ]
         },
         "certSANs": ${CERT_SANS}
+    },
+    "cluster": {
+        "network": {
+            "podSubnets": ["${CLUSTER_POD_SUBNET}"],
+            "serviceSubnets": ["${CLUSTER_SERVICE_SUBNET}"]
+        }
     }
 }
 EOF
@@ -103,9 +140,12 @@ EOF
         --config-patch "$(cat $BASE_CP_FILE)" \
         --config-patch "$(cat $PATCH_FILE)" \
         --with-docs=false \
-        --dns-domain cluster.local \
-        k8s.lan \
-        https://api.k8s.lan:6443
+        --dns-domain "${CLUSTER_DNS_DOMAIN}" \
+        "${CLUSTER_NAME}" \
+        "${CLUSTER_ENDPOINT}"
+    
+    # Validate the generated config
+    validate_config "controlplane.yaml" "controlplane-${HOSTNAME}" || exit 1
     
     OUTPUT_FILE="${MATCHBOX_ASSETS}/controlplane-${HOSTNAME}.yaml"
     if [ -f controlplane.yaml ]; then
@@ -163,6 +203,12 @@ for node in worker1 worker2; do
                 }
             ]
         }
+    },
+    "cluster": {
+        "network": {
+            "podSubnets": ["${CLUSTER_POD_SUBNET}"],
+            "serviceSubnets": ["${CLUSTER_SERVICE_SUBNET}"]
+        }
     }
 }
 EOF
@@ -173,9 +219,12 @@ EOF
         --config-patch "$(cat $BASE_WORKER_FILE)" \
         --config-patch "$(cat $PATCH_FILE)" \
         --with-docs=false \
-        --dns-domain cluster.local \
-        k8s.lan \
-        https://api.k8s.lan:6443
+        --dns-domain "${CLUSTER_DNS_DOMAIN}" \
+        "${CLUSTER_NAME}" \
+        "${CLUSTER_ENDPOINT}"
+    
+    # Validate the generated config
+    validate_config "worker.yaml" "worker-${HOSTNAME}" || exit 1
     
     OUTPUT_FILE="${MATCHBOX_ASSETS}/worker-${HOSTNAME}.yaml"
     if [ -f worker.yaml ]; then
