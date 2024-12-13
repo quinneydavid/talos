@@ -2,19 +2,22 @@
     "id": "control-plane",
     "name": "control-plane",
     "boot": {
-      "kernel": "vmlinuz",
-      "initrd": ["initramfs.xz"],
-      "args": [
-        "initrd=initramfs.xz",
-        "init_on_alloc=1",
-        "slab_nomerge",
-        "pti=on",
-        "console=tty0",
-        "console=ttyS0",
-        "printk.devkmsg=on",
-        "talos.platform=metal",
-        "ip=dhcp",
-        "talos.config=http://matchbox.lan:8080/assets/controlplane-${id}.yaml"
-      ]
+        "kernel": "/assets/vmlinuz",
+        "initrd": [
+            "/assets/initramfs.xz"
+        ],
+        "args": [
+            "initrd=initramfs.xz",
+            "init_on_alloc=1",
+            "init_on_free=1",
+            "slab_nomerge",
+            "pti=on",
+            "console=tty0",
+            "console=ttyS0",
+            "printk.devkmsg=on",
+            "ip=192.168.86.211::192.168.86.1:255.255.255.0::eth0:off:::",
+            "talos.platform=metal",
+            "talos.config=http://matchbox.lan:8080/metadata?mac=${mac}"
+        ]
     }
 }
