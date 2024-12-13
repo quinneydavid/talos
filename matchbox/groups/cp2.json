@@ -1,7 +1,7 @@
 {
     "id": "cp2",
     "name": "Control Plane Node 2",
-    "profile": "control-plane",
+    "profile": "cp2-profile",
     "selector": {
       "mac": "50:6b:8d:e3:2e:e7"
     }
