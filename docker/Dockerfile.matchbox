@@ -2,9 +2,12 @@ FROM alpine:latest
 
 RUN apk add --no-cache curl jq ca-certificates
 
+# Create required directories
 RUN mkdir -p /var/lib/matchbox/assets \
     /var/lib/matchbox/profiles \
-    /var/lib/matchbox/groups
+    /var/lib/matchbox/groups \
+    /configs \
+    /scripts
 
 # Copy base configs and generation script
 COPY configs/controlplane.yaml /configs/controlplane.yaml
@@ -12,7 +15,7 @@ COPY configs/worker.yaml /configs/worker.yaml
 COPY scripts/generate-configs.sh /scripts/generate-configs.sh
 RUN chmod +x /scripts/generate-configs.sh
 
-# Create script to download Talos assets
+# Create download script
 RUN echo '#!/bin/sh' > /download-talos.sh && \
     echo 'set -e' >> /download-talos.sh && \
     echo '' >> /download-talos.sh && \
@@ -33,6 +36,7 @@ RUN echo '#!/bin/sh' > /download-talos.sh && \
     echo 'curl -fSL --progress-bar -H "Accept: application/octet-stream" -o /usr/local/bin/talosctl "https://github.com/siderolabs/talos/releases/download/${VERSION}/talosctl-linux-amd64"' >> /download-talos.sh && \
     echo 'chmod +x /usr/local/bin/talosctl' >> /download-talos.sh && \
     echo 'echo "${VERSION}" > /var/lib/matchbox/assets/version.txt' >> /download-talos.sh && \
+    echo 'touch /var/lib/matchbox/assets/.ready' >> /download-talos.sh && \
     chmod +x /download-talos.sh
 
 # Create entrypoint script
@@ -48,25 +52,23 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo '  exit 1' >> /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
+    echo 'REPO_OWNER=$(echo $GITHUB_REPO | cut -d "/" -f4)' >> /entrypoint.sh && \
+    echo 'REPO_NAME=$(echo $GITHUB_REPO | cut -d "/" -f5)' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
     echo 'echo "Verifying assets..."' >> /entrypoint.sh && \
     echo 'ls -lh /var/lib/matchbox/assets' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching profiles..."' >> /entrypoint.sh && \
     echo 'echo "Downloading profile: control-plane.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/profiles/control-plane.json "${GITHUB_REPO}/raw/main/matchbox/profiles/control-plane.json"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/profiles/control-plane.json "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/matchbox/profiles/control-plane.json"' >> /entrypoint.sh && \
     echo 'echo "Downloading profile: worker.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/profiles/worker.json "${GITHUB_REPO}/raw/main/matchbox/profiles/worker.json"' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/profiles/worker.json "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/matchbox/profiles/worker.json"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Fetching groups..."' >> /entrypoint.sh && \
-    echo 'echo "Finding control plane nodes..."' >> /entrypoint.sh && \
-    echo 'for node in $(curl -s "${GITHUB_REPO}/raw/main/matchbox/groups/" | grep -o "cp[0-9]*.json"); do' >> /entrypoint.sh && \
-    echo '  echo "Downloading group: $node"' >> /entrypoint.sh && \
-    echo '  curl -fSL -o "/var/lib/matchbox/groups/$node" "${GITHUB_REPO}/raw/main/matchbox/groups/$node"' >> /entrypoint.sh && \
-    echo 'done' >> /entrypoint.sh && \
-    echo 'echo "Finding worker nodes..."' >> /entrypoint.sh && \
-    echo 'for node in $(curl -s "${GITHUB_REPO}/raw/main/matchbox/groups/" | grep -o "worker[0-9]*.json"); do' >> /entrypoint.sh && \
-    echo '  echo "Downloading group: $node"' >> /entrypoint.sh && \
-    echo '  curl -fSL -o "/var/lib/matchbox/groups/$node" "${GITHUB_REPO}/raw/main/matchbox/groups/$node"' >> /entrypoint.sh && \
+    echo 'echo "Finding control plane and worker nodes..."' >> /entrypoint.sh && \
+    echo 'curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/matchbox/groups" | jq -r ".[] | select(.name | test(\".json$\")) | .name" | while read -r file; do' >> /entrypoint.sh && \
+    echo '  echo "Downloading group: $file"' >> /entrypoint.sh && \
+    echo '  curl -fSL -o "/var/lib/matchbox/groups/$file" "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/matchbox/groups/$file"' >> /entrypoint.sh && \
     echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
@@ -75,7 +77,18 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'exec /matchbox -address=0.0.0.0:8080 "$@"' >> /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
+# Install matchbox binary
+RUN curl -LO https://github.com/poseidon/matchbox/releases/download/v0.10.0/matchbox-v0.10.0-linux-amd64.tar.gz && \
+    tar xzf matchbox-v0.10.0-linux-amd64.tar.gz && \
+    mv matchbox-v0.10.0-linux-amd64/matchbox /matchbox && \
+    rm -rf matchbox-v0.10.0-linux-amd64*
+
+# Create data volume
+VOLUME /var/lib/matchbox
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
+
+EXPOSE 8080
 
 ENTRYPOINT ["/entrypoint.sh"]

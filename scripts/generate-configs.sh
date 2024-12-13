@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Script to generate Talos configurations using talosctl
 # This generates configs with secrets that should only be stored on the matchbox server
@@ -11,14 +11,15 @@ MATCHBOX_GROUPS="/var/lib/matchbox/groups"
 mkdir -p "$MATCHBOX_ASSETS"
 
 # Ensure jq is available
-if ! command -v jq &> /dev/null; then
+if ! command -v jq > /dev/null 2>&1; then
     echo "jq is required but not installed"
     exit 1
 fi
 
 # Verify required environment variables
 for var in CLUSTER_NAME CLUSTER_ENDPOINT CLUSTER_DNS_DOMAIN CLUSTER_POD_SUBNET CLUSTER_SERVICE_SUBNET; do
-    if [ -z "${!var}" ]; then
+    eval val=\$$var
+    if [ -z "$val" ]; then
         echo "Error: $var environment variable must be set"
         exit 1
     fi
@@ -59,23 +60,27 @@ CONTROL_PLANE_NODES=$(find "${MATCHBOX_GROUPS}" -name "cp*.json" -exec basename 
 echo "Found control plane nodes: ${CONTROL_PLANE_NODES}"
 
 # Collect all control plane IPs
-declare -a CONTROL_PLANE_IPS
+CONTROL_PLANE_IPS=""
 for node in ${CONTROL_PLANE_NODES}; do
     if [ -f "${MATCHBOX_GROUPS}/${node}.json" ]; then
         ip=$(jq -r '.metadata.ip' "${MATCHBOX_GROUPS}/${node}.json")
-        CONTROL_PLANE_IPS+=("\"$ip\"")
+        if [ -z "$CONTROL_PLANE_IPS" ]; then
+            CONTROL_PLANE_IPS="\"$ip\""
+        else
+            CONTROL_PLANE_IPS="$CONTROL_PLANE_IPS,\"$ip\""
+        fi
     fi
 done
 
-# Join IPs with commas
-CERT_SANS=$(IFS=,; echo "[${CONTROL_PLANE_IPS[*]}, \"api.${CLUSTER_NAME}\"]")
+# Create CERT_SANS with IPs and cluster API
+CERT_SANS="[${CONTROL_PLANE_IPS}, \"api.${CLUSTER_NAME}\"]"
 
 # Function to validate config
 validate_config() {
     local config_file="$1"
     local node_type="$2"
     echo "Validating ${node_type} config..."
-    if ! talosctl validate -c "$config_file" -v; then
+    if ! talosctl validate --mode container -c "$config_file"; then
         echo "Error: Configuration validation failed for ${node_type}"
         return 1
     fi
@@ -139,7 +144,14 @@ for node in ${CONTROL_PLANE_NODES}; do
 EOF
     
     echo "Generating controlplane config with talosctl..."
+    if [ "$WIPE_DISK" = "true" ]; then
+        FORCE_FLAG="--force"
+    else
+        FORCE_FLAG=""
+    fi
+    
     talosctl gen config \
+        $FORCE_FLAG \
         --output-types controlplane \
         --config-patch "$(cat $BASE_CP_FILE)" \
         --config-patch "$(cat $PATCH_FILE)" \
@@ -222,7 +234,14 @@ for node in ${WORKER_NODES}; do
 EOF
     
     echo "Generating worker config with talosctl..."
+    if [ "$WIPE_DISK" = "true" ]; then
+        FORCE_FLAG="--force"
+    else
+        FORCE_FLAG=""
+    fi
+    
     talosctl gen config \
+        $FORCE_FLAG \
         --output-types worker \
         --config-patch "$(cat $BASE_WORKER_FILE)" \
         --config-patch "$(cat $PATCH_FILE)" \
@@ -245,8 +264,48 @@ EOF
     rm "$PATCH_FILE"
 done
 
-# Clean up
-rm -f talosconfig "$BASE_CP_FILE" "$BASE_WORKER_FILE" 2>/dev/null || true
+# Generate talosconfig and move it to assets
+echo "Generating talosconfig..."
+talosctl gen config \
+    --output-types talosconfig \
+    --with-docs=false \
+    --dns-domain "${CLUSTER_DNS_DOMAIN}" \
+    "${CLUSTER_NAME}" \
+    "${CLUSTER_ENDPOINT}"
+
+if [ -f talosconfig ]; then
+    echo "Moving talosconfig to ${MATCHBOX_ASSETS}/talosconfig"
+    mv talosconfig "${MATCHBOX_ASSETS}/talosconfig"
+    
+    # Create a log file with talosconfig location and export instructions
+    cat > "${MATCHBOX_ASSETS}/talosconfig.info" << EOF
+Talos configuration file location:
+--------------------------------
+Container path: ${MATCHBOX_ASSETS}/talosconfig
+
+To export the talosconfig to your local machine, run:
+--------------------------------------------------
+cd talos/docker && docker cp docker_matchbox_1:/var/lib/matchbox/assets/talosconfig ../tmp/talosconfig
+
+Then you can use it with talosctl:
+--------------------------------
+cd talos && talosctl --talosconfig tmp/talosconfig --endpoints <NODE_IP> --nodes <NODE_IP> <command>
+Example: talosctl --talosconfig tmp/talosconfig --endpoints 192.168.86.210 --nodes 192.168.86.210 version
+EOF
+    
+    echo "Created talosconfig.info with location and export instructions"
+else
+    echo "Error: talosconfig was not generated"
+fi
+
+# Clean up temporary files
+rm -f "$BASE_CP_FILE" "$BASE_WORKER_FILE" 2>/dev/null || true
 
 echo -e "\nGenerated files in $MATCHBOX_ASSETS:"
 ls -l "$MATCHBOX_ASSETS"
+
+# Display the contents of talosconfig.info
+if [ -f "${MATCHBOX_ASSETS}/talosconfig.info" ]; then
+    echo -e "\nTalosconfig information:"
+    cat "${MATCHBOX_ASSETS}/talosconfig.info"
+fi

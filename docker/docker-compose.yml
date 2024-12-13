@@ -4,6 +4,9 @@ networks:
   pxe-network:
     driver: bridge
 
+volumes:
+  matchbox-data:
+
 services:
   matchbox:
     build:
@@ -13,11 +16,23 @@ services:
       - "8080:8080"
     environment:
       - GITHUB_REPO=https://github.com/quinneydavid/talos
+      - CLUSTER_NAME=k8s.lan
+      - CLUSTER_ENDPOINT=https://api.k8s.lan:6443
+      - CLUSTER_DNS_DOMAIN=cluster.local
+      - CLUSTER_POD_SUBNET=10.244.0.0/16
+      - CLUSTER_SERVICE_SUBNET=10.96.0.0/12
+      - WIPE_DISK=true  # Set to true to wipe disks during reinstall
+      - TALOS_VERSION=latest  # Set to specific version like v1.5.5 or use latest
     networks:
       - pxe-network
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - matchbox-assets:/var/lib/matchbox/assets
+      - matchbox-data:/var/lib/matchbox
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   matchbox-tftp:
     build:
@@ -28,7 +43,6 @@ services:
     networks:
       - pxe-network
     volumes:
-      - matchbox-assets:/var/lib/matchbox/assets:ro
-
-volumes:
-  matchbox-assets:
+      - matchbox-data:/var/lib/matchbox:ro
+    depends_on:
+      - matchbox
