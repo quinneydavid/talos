@@ -2,15 +2,3 @@ machine:
   type: controlplane
   install:
     disk: /dev/sda
-cluster:
-  name: k8s.lan
-  controlPlane:
-    endpoint: https://api.k8s.lan:6443
-  network:
-    dnsDomain: cluster.local
-    podSubnets:
-      - 10.244.0.0/16
-    serviceSubnets:
-      - 10.96.0.0/12
-  apiServer:
-    disablePodSecurityPolicy: true
