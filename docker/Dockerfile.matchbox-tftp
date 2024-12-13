@@ -1,21 +1,12 @@
 FROM alpine:latest
 
-RUN apk add --no-cache dnsmasq syslinux
+RUN apk add --no-cache dnsmasq
 
-RUN mkdir -p /var/lib/tftpboot/pxelinux.cfg
+# Create required directories
+RUN mkdir -p /var/lib/tftpboot
 
-# Copy SYSLINUX files
-RUN cp /usr/share/syslinux/lpxelinux.0 /var/lib/tftpboot/ && \
-    cp /usr/share/syslinux/ldlinux.c32 /var/lib/tftpboot/
-
-# Configure dnsmasq
-RUN printf 'enable-tftp\ntftp-root=/var/lib/tftpboot\ndhcp-boot=lpxelinux.0\nlog-queries\nlog-dhcp\ntftp-no-blocksize\n' > /etc/dnsmasq.conf
-
-# Configure PXE boot
-RUN echo 'DEFAULT talos' > /var/lib/tftpboot/pxelinux.cfg/default && \
-    echo 'LABEL talos' >> /var/lib/tftpboot/pxelinux.cfg/default && \
-    echo '    KERNEL vmlinuz' >> /var/lib/tftpboot/pxelinux.cfg/default && \
-    echo '    APPEND initrd=initramfs.xz init_on_alloc=1 slab_nomerge pti=on console=tty0 console=ttyS0 printk.devkmsg=on earlyprintk=serial,tty0,keep talos.platform=metal' >> /var/lib/tftpboot/pxelinux.cfg/default
+# Configure dnsmasq for TFTP only
+RUN printf 'enable-tftp\ntftp-root=/var/lib/tftpboot\ndhcp-boot=vmlinuz\nlog-queries\n' > /etc/dnsmasq.conf
 
 # Create entrypoint script
 RUN echo '#!/bin/sh' > /entrypoint.sh && \

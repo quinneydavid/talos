@@ -25,14 +25,26 @@ The system uses a simple, secure approach to manage Talos configurations:
 │   ├── Dockerfile.matchbox    # Matchbox server with talosctl
 │   └── Dockerfile.matchbox-tftp # TFTP server for PXE boot
 ├── matchbox/                  # Matchbox configurations
-│   ├── groups/               # Node group definitions
-│   │   ├── cp*.json         # Control plane nodes (cp1.json, cp2.json, etc.)
-│   │   └── worker*.json     # Worker nodes (worker1.json, worker2.json, etc.)
-│   └── profiles/            # Boot profiles
+│   ├── profiles/             # PXE boot profiles
+│   │   ├── control-plane.json # Control plane boot configuration
+│   │   └── worker.json       # Worker node boot configuration
+│   └── groups/               # Node group definitions
+│       ├── cp*.json         # Control plane nodes (cp1.json, cp2.json, etc.)
+│       └── worker*.json     # Worker nodes (worker1.json, worker2.json, etc.)
 └── scripts/                  # Utility scripts
     └── generate-configs.sh   # Config generation script
+```
 
 ## Configuration
+
+### DHCP Server Configuration
+
+The external DHCP server must be configured with the following PXE boot parameters:
+
+- filename: "vmlinuz"
+- next-server: [IP address of your TFTP server]
+
+This ensures nodes will directly boot the Talos kernel without requiring an intermediate bootloader.
 
 ### Environment Variables
 
@@ -54,9 +66,25 @@ environment:
   - TALOS_VERSION=latest  # Use 'latest' or specific version like 'v1.5.5'
 ```
 
+### Boot Profiles
+
+The system uses two types of boot profiles in `matchbox/profiles/`:
+
+1. Control Plane Profile (`control-plane.json`):
+   - Defines PXE boot configuration for control plane nodes
+   - Specifies kernel, initrd, and boot arguments
+   - Configures Talos for control plane role
+
+2. Worker Profile (`worker.json`):
+   - Defines PXE boot configuration for worker nodes
+   - Shares common boot parameters with control plane
+   - Configures Talos for worker role
+
+These profiles are referenced by the node group configurations in `matchbox/groups/`.
+
 ### Node Configuration
 
-Nodes are automatically discovered from json files in `matchbox/groups/`:
+Nodes are configured through json files in `matchbox/groups/`:
 - Control plane nodes: `cp*.json` (e.g., cp1.json, cp2.json, cp3.json)
 - Worker nodes: `worker*.json` (e.g., worker1.json, worker2.json)
 
