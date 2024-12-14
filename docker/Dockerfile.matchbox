@@ -9,8 +9,7 @@ RUN mkdir -p /var/lib/matchbox/assets \
     /configs \
     /scripts
 
-# Copy network config and generation script
-COPY configs/network-config.yaml /configs/network-config.yaml
+# Copy generation script
 COPY scripts/generate-configs.sh /scripts/generate-configs.sh
 RUN chmod +x /scripts/generate-configs.sh
 
@@ -57,23 +56,13 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'echo "Verifying assets..."' >> /entrypoint.sh && \
     echo 'ls -lh /var/lib/matchbox/assets' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'echo "Fetching profiles..."' >> /entrypoint.sh && \
-    echo 'echo "Downloading profile: control-plane.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/profiles/control-plane.json "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/matchbox/profiles/control-plane.json"' >> /entrypoint.sh && \
-    echo 'echo "Downloading profile: worker.json"' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/profiles/worker.json "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/matchbox/profiles/worker.json"' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo 'echo "Fetching groups..."' >> /entrypoint.sh && \
-    echo 'echo "Finding control plane and worker nodes..."' >> /entrypoint.sh && \
-    echo 'curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/matchbox/groups" | jq -r ".[] | select(.name | test(\".json$\")) | .name" | while read -r file; do' >> /entrypoint.sh && \
-    echo '  echo "Downloading group: $file"' >> /entrypoint.sh && \
-    echo '  curl -fSL -o "/var/lib/matchbox/groups/$file" "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/matchbox/groups/$file"' >> /entrypoint.sh && \
-    echo 'done' >> /entrypoint.sh && \
+    echo 'echo "Downloading network config..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/network-config.yaml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/network-config.yaml"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
     echo '/scripts/generate-configs.sh' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'exec /matchbox -address=0.0.0.0:8080 "$@"' >> /entrypoint.sh && \
+    echo 'exec /matchbox -address=0.0.0.0:8080 -data-path=/var/lib/matchbox -assets-path=/var/lib/matchbox/assets "$@"' >> /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
 # Install matchbox binary

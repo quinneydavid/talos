@@ -1,9 +1,9 @@
 FROM alpine:latest
 
-RUN apk add --no-cache dnsmasq syslinux
+RUN apk add --no-cache dnsmasq syslinux yq curl
 
 # Create required directories
-RUN mkdir -p /var/lib/tftpboot/pxelinux.cfg
+RUN mkdir -p /var/lib/tftpboot/pxelinux.cfg /configs
 
 # Copy necessary PXE boot files
 RUN cp /usr/share/syslinux/lpxelinux.0 /var/lib/tftpboot/ && \
@@ -12,20 +12,10 @@ RUN cp /usr/share/syslinux/lpxelinux.0 /var/lib/tftpboot/ && \
 # Configure dnsmasq for TFTP
 RUN printf 'enable-tftp\n\
 tftp-root=/var/lib/tftpboot\n\
-dhcp-match=set:bios,60,PXEClient:Arch:00000\n\
-dhcp-boot=tag:bios,lpxelinux.0\n\
-dhcp-match=set:efi64,60,PXEClient:Arch:00007\n\
-dhcp-boot=tag:efi64,vmlinuz,,,talos.platform=metal slab_nomerge pti=on initrd=initramfs.xz talos.config=http://matchbox.lan:8080/metadata?mac=${mac}\n\
+dhcp-boot=lpxelinux.0\n\
 log-queries\n' > /etc/dnsmasq.conf
 
-# Create default PXE boot configuration
-RUN mkdir -p /var/lib/tftpboot/pxelinux.cfg && \
-    printf 'DEFAULT talos\n\
-LABEL talos\n\
-    KERNEL vmlinuz\n\
-    APPEND initrd=initramfs.xz talos.platform=metal slab_nomerge pti=on talos.config=http://matchbox.lan:8080/metadata?mac=${mac}\n' > /var/lib/tftpboot/pxelinux.cfg/default
-
-# Create entrypoint script
+# Create entrypoint script that will generate PXE configs
 RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'set -e' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
@@ -38,6 +28,38 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'echo "Copying Talos files..."' >> /entrypoint.sh && \
     echo 'cp /var/lib/matchbox/assets/vmlinuz /var/lib/tftpboot/' >> /entrypoint.sh && \
     echo 'cp /var/lib/matchbox/assets/initramfs.xz /var/lib/tftpboot/' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Waiting for network config to be available..."' >> /entrypoint.sh && \
+    echo 'until [ -f /var/lib/matchbox/network-config.yaml ]; do' >> /entrypoint.sh && \
+    echo '  sleep 1' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Creating PXE configs..."' >> /entrypoint.sh && \
+    echo 'cp /var/lib/matchbox/network-config.yaml /configs/' >> /entrypoint.sh && \
+    echo 'for node in $(yq e ".nodes | keys | .[]" /configs/network-config.yaml); do' >> /entrypoint.sh && \
+    echo '  mac=$(yq e ".nodes.${node}.mac" /configs/network-config.yaml)' >> /entrypoint.sh && \
+    echo '  type=$(yq e ".nodes.${node}.type" /configs/network-config.yaml)' >> /entrypoint.sh && \
+    echo '  mac_dashes=$(echo $mac | tr ":" "-")' >> /entrypoint.sh && \
+    echo '  if [ "$type" = "controlplane" ]; then' >> /entrypoint.sh && \
+    echo '    config_path="controlplane-${node}.yaml"' >> /entrypoint.sh && \
+    echo '  else' >> /entrypoint.sh && \
+    echo '    config_path="worker-${node}.yaml"' >> /entrypoint.sh && \
+    echo '  fi' >> /entrypoint.sh && \
+    echo '  cat > "/var/lib/tftpboot/pxelinux.cfg/01-${mac_dashes}" << EOF' >> /entrypoint.sh && \
+    echo 'DEFAULT talos' >> /entrypoint.sh && \
+    echo 'LABEL talos' >> /entrypoint.sh && \
+    echo '    KERNEL vmlinuz' >> /entrypoint.sh && \
+    echo '    APPEND initrd=initramfs.xz init_on_alloc=1 init_on_free=1 slab_nomerge pti=on console=tty0 console=ttyS0 printk.devkmsg=on talos.platform=metal talos.config=http://matchbox.lan:8080/assets/${config_path}' >> /entrypoint.sh && \
+    echo 'EOF' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Create default PXE config' >> /entrypoint.sh && \
+    echo 'cat > "/var/lib/tftpboot/pxelinux.cfg/default" << EOF' >> /entrypoint.sh && \
+    echo 'DEFAULT talos' >> /entrypoint.sh && \
+    echo 'LABEL talos' >> /entrypoint.sh && \
+    echo '    KERNEL vmlinuz' >> /entrypoint.sh && \
+    echo '    APPEND initrd=initramfs.xz init_on_alloc=1 init_on_free=1 slab_nomerge pti=on console=tty0 console=ttyS0 printk.devkmsg=on talos.platform=metal' >> /entrypoint.sh && \
+    echo 'EOF' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Starting dnsmasq..."' >> /entrypoint.sh && \
     echo 'exec dnsmasq -d' >> /entrypoint.sh && \

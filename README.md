@@ -1,50 +1,71 @@
 # Talos Cluster Configuration
 
-This repository contains the configuration for a Talos-based Kubernetes cluster using PXE boot with Matchbox.
+This repository contains the configuration for a Talos-based Kubernetes cluster using PXE boot with TFTP.
 
 ## Overview
 
 The system uses a simple, secure approach to manage Talos configurations:
 
-- Base configurations stored in Git (no secrets)
-- Node-specific settings in matchbox group files
+- Single network configuration file for all nodes
 - Configurations with secrets generated at runtime
 - Automatic validation of generated configs
-- Dynamic node discovery and configuration
+- Dynamic node discovery and configuration via PXE boot
 
 ## Structure
 
 ```
 .
-├── configs/                    # Base Talos configurations
-│   ├── controlplane.yaml      # Control plane base config
-│   ├── worker.yaml            # Worker node base config
+├── configs/                    # Configuration files
+│   ├── network-config.yaml    # Node and network configuration
 │   └── storage-class.yaml     # Storage class for Synology CSI
 ├── docker/                    # Docker configurations
 │   ├── docker-compose.yml     # Docker Compose configuration
-│   ├── Dockerfile.matchbox    # Matchbox server with talosctl
+│   ├── Dockerfile.matchbox    # HTTP server for Talos configs
 │   └── Dockerfile.matchbox-tftp # TFTP server for PXE boot
-├── matchbox/                  # Matchbox configurations
-│   ├── profiles/             # PXE boot profiles
-│   │   ├── control-plane.json # Control plane boot configuration
-│   │   └── worker.json       # Worker node boot configuration
-│   └── groups/               # Node group definitions
-│       ├── cp*.json         # Control plane nodes (cp1.json, cp2.json, etc.)
-│       └── worker*.json     # Worker nodes (worker1.json, worker2.json, etc.)
 └── scripts/                  # Utility scripts
     └── generate-configs.sh   # Config generation script
 ```
 
 ## Configuration
 
+### Network Configuration
+
+All node configurations are defined in a single YAML file (`configs/network-config.yaml`):
+
+```yaml
+# Global network settings
+network:
+  gateway: "192.168.86.1"
+  netmask: "255.255.255.0"
+  nameservers:
+    - "192.168.86.2"
+    - "192.168.86.4"
+
+# Node-specific configurations
+nodes:
+  cp1:
+    mac: "50:6b:8d:96:f7:50"
+    ip: "192.168.86.211"
+    storage_ip: "10.44.5.10"
+    hostname: "cp1"
+    type: "controlplane"
+
+  worker1:
+    mac: "50:6b:8d:ff:7b:7e"
+    ip: "192.168.86.214"
+    storage_ip: "10.44.5.13"
+    hostname: "worker1"
+    type: "worker"
+```
+
 ### DHCP Server Configuration
 
 The external DHCP server must be configured with the following PXE boot parameters:
 
-- filename: "vmlinuz"
+- filename: "lpxelinux.0"
 - next-server: [IP address of your TFTP server]
 
-This ensures nodes will directly boot the Talos kernel without requiring an intermediate bootloader.
+The TFTP server will automatically generate the appropriate PXE boot configuration based on the node's MAC address.
 
 ### Environment Variables
 
@@ -66,96 +87,40 @@ environment:
   - TALOS_VERSION=latest  # Use 'latest' or specific version like 'v1.5.5'
 ```
 
-### Boot Profiles
-
-The system uses two types of boot profiles in `matchbox/profiles/`:
-
-1. Control Plane Profile (`control-plane.json`):
-   - Defines PXE boot configuration for control plane nodes
-   - Specifies kernel, initrd, and boot arguments
-   - Configures Talos for control plane role
-
-2. Worker Profile (`worker.json`):
-   - Defines PXE boot configuration for worker nodes
-   - Shares common boot parameters with control plane
-   - Configures Talos for worker role
-
-These profiles are referenced by the node group configurations in `matchbox/groups/`.
-
-### Node Configuration
-
-Nodes are configured through json files in `matchbox/groups/`:
-- Control plane nodes: `cp*.json` (e.g., cp1.json, cp2.json, cp3.json)
-- Worker nodes: `worker*.json` (e.g., worker1.json, worker2.json)
-
-Example node configuration:
-```json
-{
-    "id": "cp1",
-    "name": "Control Plane Node 1",
-    "profile": "control-plane",
-    "selector": {
-      "mac": "50:6b:8d:96:f7:50"
-    },
-    "metadata": {
-      "ip": "192.168.86.211",        # Primary network IP
-      "gateway": "192.168.86.1",
-      "netmask": "255.255.255.0",
-      "storage_ip": "10.44.5.10",    # Storage network IP
-      "hostname": "cp1",
-      "nameservers": ["192.168.86.2", "192.168.86.4"]
-    }
-}
-```
-
 ### Adding Nodes
 
 To add more nodes to the cluster:
 
-1. Create a new group file in `matchbox/groups/`:
-   - Control plane: `cp<number>.json` (e.g., cp4.json)
-   - Worker: `worker<number>.json` (e.g., worker3.json)
-
-2. Configure the node settings:
-   ```json
-   {
-       "id": "worker3",
-       "name": "Worker Node 3",
-       "profile": "worker",
-       "selector": {
-         "mac": "<node-mac-address>"
-       },
-       "metadata": {
-         "ip": "192.168.86.216",
-         "gateway": "192.168.86.1",
-         "netmask": "255.255.255.0",
-         "storage_ip": "10.44.5.22",
-         "hostname": "worker3",
-         "nameservers": ["192.168.86.2", "192.168.86.4"]
-       }
-   }
+1. Add the node configuration to network-config.yaml:
+   ```yaml
+   nodes:
+     worker3:
+       mac: "50:6b:8d:xx:xx:xx"
+       ip: "192.168.86.216"
+       storage_ip: "10.44.5.15"
+       hostname: "worker3"
+       type: "worker"
    ```
 
-3. Commit and push the new group file
-4. Restart the matchbox service:
+2. Restart the services:
    ```bash
    cd docker
-   docker-compose restart matchbox
+   docker-compose restart
    ```
 
 The system will automatically:
-- Discover the new node configuration
 - Generate appropriate Talos configs
-- Make them available for PXE boot
+- Create PXE boot configurations
+- Make them available for network boot
 
 ### Storage Configuration
 
 The cluster uses a dedicated storage network for Synology CSI:
 
-1. Each node has a storage network interface (eth1) configured via group files
+1. Each node has a storage network interface (eth1) configured via network-config.yaml
 2. Storage IPs are in the 10.44.5.0/24 network:
    - Control plane nodes: 10.44.5.10-12
-   - Worker nodes: 10.44.5.20+
+   - Worker nodes: 10.44.5.13+
    - Synology NAS: 10.44.5.2
 
 The storage class configuration is defined in `configs/storage-class.yaml`:
@@ -248,8 +213,9 @@ To reinstall nodes with clean disks:
 
 ## Security
 
-- Base configurations and node settings in Git (no secrets)
+- Node configuration stored in Git (no secrets)
 - Secrets generated by talosctl at runtime
-- Generated configs stored only on matchbox server
+- Generated configs stored only on HTTP server
 - Each node gets its own configuration with unique secrets
 - All configs validated before deployment
+- PXE boot configurations generated automatically based on MAC addresses

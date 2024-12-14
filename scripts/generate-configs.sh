@@ -7,9 +7,7 @@ set -e
 
 # Directory setup
 MATCHBOX_ASSETS="/var/lib/matchbox/assets"
-MATCHBOX_PROFILES="/var/lib/matchbox/profiles"
-MATCHBOX_GROUPS="/var/lib/matchbox/groups"
-mkdir -p "$MATCHBOX_ASSETS" "$MATCHBOX_PROFILES" "$MATCHBOX_GROUPS"
+mkdir -p "$MATCHBOX_ASSETS"
 
 # Ensure yq is available
 if ! command -v yq > /dev/null 2>&1; then
@@ -37,76 +35,6 @@ echo "Pod Subnet: $CLUSTER_POD_SUBNET"
 echo "Service Subnet: $CLUSTER_SERVICE_SUBNET"
 echo "Wipe Disk: $WIPE_DISK"
 
-# Function to create profile
-create_profile() {
-    local node_id="$1"
-    local node_type="$2"
-    local profile_path="${MATCHBOX_PROFILES}/${node_id}-profile.json"
-    
-    # Determine config path based on node type
-    if [ "$node_type" = "controlplane" ]; then
-        config_path="controlplane-${node_id}.yaml"
-    else
-        config_path="worker-${node_id}.yaml"
-    fi
-    
-    cat > "$profile_path" << EOF
-{
-  "id": "${node_id}-profile",
-  "name": "Talos ${node_type} Node ${node_id}",
-  "boot": {
-    "kernel": "vmlinuz",
-    "initrd": ["initramfs.xz"],
-    "args": [
-      "initrd=initramfs.xz",
-      "init_on_alloc=1",
-      "slab_nomerge",
-      "pti=on",
-      "console=tty0",
-      "console=ttyS0",
-      "printk.devkmsg=on",
-      "talos.platform=metal",
-      "talos.config=http://matchbox.lan:8080/assets/${config_path}"
-    ]
-  }
-}
-EOF
-}
-
-# Function to create group
-create_group() {
-    local node_id="$1"
-    local mac="$2"
-    local group_path="${MATCHBOX_GROUPS}/${node_id}.json"
-    
-    cat > "$group_path" << EOF
-{
-    "id": "${node_id}",
-    "name": "Node ${node_id}",
-    "profile": "${node_id}-profile",
-    "selector": {
-      "mac": "${mac}"
-    }
-}
-EOF
-}
-
-# Generate matchbox profiles and groups
-echo "Generating matchbox profiles and groups..."
-for node_id in $(yq e '.nodes | keys | .[]' /configs/network-config.yaml); do
-    echo "Processing matchbox config for node: $node_id"
-    
-    # Get node type and MAC address
-    node_type=$(yq e ".nodes.${node_id}.type" /configs/network-config.yaml)
-    mac=$(yq e ".nodes.${node_id}.mac" /configs/network-config.yaml)
-    
-    # Create profile and group files
-    create_profile "$node_id" "$node_type"
-    create_group "$node_id" "$mac"
-    
-    echo "Created matchbox profile and group for $node_id"
-done
-
 # Create base config files
 BASE_CP_FILE=$(mktemp)
 cat > "$BASE_CP_FILE" << EOF
@@ -127,13 +55,13 @@ machine:
 EOF
 
 # Read global network settings
-GATEWAY=$(yq e '.network.gateway' /configs/network-config.yaml)
-NETMASK=$(yq e '.network.netmask' /configs/network-config.yaml)
-NAMESERVERS=$(yq e '.network.nameservers | join(",")' /configs/network-config.yaml)
+GATEWAY=$(yq e '.network.gateway' /var/lib/matchbox/network-config.yaml)
+NETMASK=$(yq e '.network.netmask' /var/lib/matchbox/network-config.yaml)
+NAMESERVERS=$(yq e '.network.nameservers | join(",")' /var/lib/matchbox/network-config.yaml)
 
 # Get all control plane nodes
 CONTROL_PLANE_IPS=""
-for node in $(yq e '.nodes[] | select(.type == "controlplane") | .ip' /configs/network-config.yaml); do
+for node in $(yq e '.nodes[] | select(.type == "controlplane") | .ip' /var/lib/matchbox/network-config.yaml); do
     if [ -z "$CONTROL_PLANE_IPS" ]; then
         CONTROL_PLANE_IPS="\"$node\""
     else
@@ -157,15 +85,15 @@ validate_config() {
 }
 
 # Generate configs for all nodes
-for node in $(yq e '.nodes | keys | .[]' /configs/network-config.yaml); do
+for node in $(yq e '.nodes | keys | .[]' /var/lib/matchbox/network-config.yaml); do
     echo "Generating config for ${node}..."
     
     # Extract node metadata
-    NODE_TYPE=$(yq e ".nodes.${node}.type" /configs/network-config.yaml)
-    NODE_IP=$(yq e ".nodes.${node}.ip" /configs/network-config.yaml)
-    STORAGE_IP=$(yq e ".nodes.${node}.storage_ip" /configs/network-config.yaml)
-    HOSTNAME=$(yq e ".nodes.${node}.hostname" /configs/network-config.yaml)
-    MAC_ADDRESS=$(yq e ".nodes.${node}.mac" /configs/network-config.yaml)
+    NODE_TYPE=$(yq e ".nodes.${node}.type" /var/lib/matchbox/network-config.yaml)
+    NODE_IP=$(yq e ".nodes.${node}.ip" /var/lib/matchbox/network-config.yaml)
+    STORAGE_IP=$(yq e ".nodes.${node}.storage_ip" /var/lib/matchbox/network-config.yaml)
+    HOSTNAME=$(yq e ".nodes.${node}.hostname" /var/lib/matchbox/network-config.yaml)
+    MAC_ADDRESS=$(yq e ".nodes.${node}.mac" /var/lib/matchbox/network-config.yaml)
     
     echo "Extracted metadata for ${HOSTNAME}:"
     echo "  IP: ${NODE_IP}"
@@ -279,6 +207,9 @@ fi
 
 # Clean up temporary files
 rm -f "$BASE_CP_FILE" "$BASE_WORKER_FILE" 2>/dev/null || true
+
+# Create .ready file to signal TFTP server
+touch "${MATCHBOX_ASSETS}/.ready"
 
 echo -e "\nGenerated files in $MATCHBOX_ASSETS:"
 ls -l "$MATCHBOX_ASSETS"
