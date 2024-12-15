@@ -35,6 +35,9 @@ echo "Pod Subnet: $CLUSTER_POD_SUBNET"
 echo "Service Subnet: $CLUSTER_SERVICE_SUBNET"
 echo "Wipe Disk: $WIPE_DISK"
 
+# Read kube-vip manifest
+KUBE_VIP_MANIFEST=$(cat /var/lib/matchbox/configs/kube-vip.yaml)
+
 # Create base config files
 BASE_CP_FILE=$(mktemp)
 cat > "$BASE_CP_FILE" << EOF
@@ -43,6 +46,54 @@ machine:
   install:
     disk: /dev/sda
     wipe: ${WIPE_DISK}
+  kubelet:
+    extraArgs:
+      node-labels: node.kubernetes.io/control-plane=
+  features:
+    kubePrism:
+      enabled: true
+  network:
+    interfaces:
+      - deviceSelector:
+          busPath: "0:0"
+        vip:
+          ip: ${CLUSTER_ENDPOINT}
+  bootstrap:
+    enabled: true
+cluster:
+  apiServer:
+    admissionControl:
+      - name: PodSecurity
+        configuration:
+          defaults:
+            enforce: "baseline"
+            enforce-version: "latest"
+            audit: "restricted"
+            audit-version: "latest"
+            warn: "restricted"
+            warn-version: "latest"
+  controllerManager:
+    extraArgs:
+      bind-address: 0.0.0.0
+  scheduler:
+    extraArgs:
+      bind-address: 0.0.0.0
+  proxy:
+    disabled: false
+    extraArgs:
+      bind-address: 0.0.0.0
+  discovery:
+    enabled: true
+    registries:
+      kubernetes:
+        disabled: false
+  etcd:
+    advertisedSubnets:
+      - ${CLUSTER_SERVICE_SUBNET}
+  inlineManifests:
+    - name: kube-vip
+      contents: |
+        ${KUBE_VIP_MANIFEST}
 EOF
 
 BASE_WORKER_FILE=$(mktemp)
@@ -84,9 +135,26 @@ validate_config() {
     echo "Configuration validation successful for ${node_type}"
 }
 
-# Generate configs for all nodes
+# Generate base configs with talosconfig
+echo "Generating base configurations..."
+if [ "$WIPE_DISK" = "true" ]; then
+    FORCE_FLAG="--force"
+else
+    FORCE_FLAG=""
+fi
+
+# Generate initial configs with talosconfig
+talosctl gen config \
+    $FORCE_FLAG \
+    --output-types controlplane,worker,talosconfig \
+    --with-docs=false \
+    --dns-domain "${CLUSTER_DNS_DOMAIN}" \
+    "${CLUSTER_NAME}" \
+    "${CLUSTER_ENDPOINT}"
+
+# Process and move generated configs
 for node in $(yq e '.nodes | keys | .[]' /var/lib/matchbox/network-config.yaml); do
-    echo "Generating config for ${node}..."
+    echo "Processing config for ${node}..."
     
     # Extract node metadata
     NODE_TYPE=$(yq e ".nodes.${node}.type" /var/lib/matchbox/network-config.yaml)
@@ -95,12 +163,7 @@ for node in $(yq e '.nodes | keys | .[]' /var/lib/matchbox/network-config.yaml);
     HOSTNAME=$(yq e ".nodes.${node}.hostname" /var/lib/matchbox/network-config.yaml)
     MAC_ADDRESS=$(yq e ".nodes.${node}.mac" /var/lib/matchbox/network-config.yaml)
     
-    echo "Extracted metadata for ${HOSTNAME}:"
-    echo "  IP: ${NODE_IP}"
-    echo "  Storage IP: ${STORAGE_IP}"
-    echo "  Gateway: ${GATEWAY}"
-    echo "  Nameservers: ${NAMESERVERS}"
-    echo "  MAC Address: ${MAC_ADDRESS}"
+    OUTPUT_FILE="${MATCHBOX_ASSETS}/${NODE_TYPE}-${HOSTNAME}.yaml"
     
     # Create a temporary file for the patch
     PATCH_FILE=$(mktemp)
@@ -130,56 +193,22 @@ for node in $(yq e '.nodes | keys | .[]' /var/lib/matchbox/network-config.yaml);
 }
 EOF
     
-    echo "Generating ${NODE_TYPE} config with talosctl..."
-    if [ "$WIPE_DISK" = "true" ]; then
-        FORCE_FLAG="--force"
-    else
-        FORCE_FLAG=""
-    fi
-    
     if [ "$NODE_TYPE" = "controlplane" ]; then
-        BASE_FILE="$BASE_CP_FILE"
-        OUTPUT_TYPE="controlplane"
         CONFIG_FILE="controlplane.yaml"
     else
-        BASE_FILE="$BASE_WORKER_FILE"
-        OUTPUT_TYPE="worker"
         CONFIG_FILE="worker.yaml"
     fi
     
-    talosctl gen config \
-        $FORCE_FLAG \
-        --output-types $OUTPUT_TYPE \
-        --config-patch "$(cat $BASE_FILE)" \
-        --config-patch "$(cat $PATCH_FILE)" \
-        --with-docs=false \
-        --dns-domain "${CLUSTER_DNS_DOMAIN}" \
-        "${CLUSTER_NAME}" \
-        "${CLUSTER_ENDPOINT}"
+    # Apply the patch to the config
+    yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$CONFIG_FILE" "$PATCH_FILE" > "$OUTPUT_FILE"
     
-    # Validate the generated config
-    validate_config "$CONFIG_FILE" "${NODE_TYPE}-${HOSTNAME}" || exit 1
-    
-    OUTPUT_FILE="${MATCHBOX_ASSETS}/${NODE_TYPE}-${HOSTNAME}.yaml"
-    if [ -f "$CONFIG_FILE" ]; then
-        echo "Moving ${CONFIG_FILE} to ${OUTPUT_FILE}"
-        mv "$CONFIG_FILE" "${OUTPUT_FILE}"
-    else
-        echo "Error: ${CONFIG_FILE} was not generated"
-    fi
+    # Validate the patched config
+    validate_config "$OUTPUT_FILE" "${NODE_TYPE}-${HOSTNAME}" || exit 1
     
     rm "$PATCH_FILE"
 done
 
-# Generate talosconfig and move it to assets
-echo "Generating talosconfig..."
-talosctl gen config \
-    --output-types talosconfig \
-    --with-docs=false \
-    --dns-domain "${CLUSTER_DNS_DOMAIN}" \
-    "${CLUSTER_NAME}" \
-    "${CLUSTER_ENDPOINT}"
-
+# Move talosconfig to assets directory
 if [ -f talosconfig ]; then
     echo "Moving talosconfig to ${MATCHBOX_ASSETS}/talosconfig"
     mv talosconfig "${MATCHBOX_ASSETS}/talosconfig"
@@ -206,7 +235,7 @@ else
 fi
 
 # Clean up temporary files
-rm -f "$BASE_CP_FILE" "$BASE_WORKER_FILE" 2>/dev/null || true
+rm -f "$BASE_CP_FILE" "$BASE_WORKER_FILE" controlplane.yaml worker.yaml 2>/dev/null || true
 
 # Create .ready file to signal TFTP server
 touch "${MATCHBOX_ASSETS}/.ready"
@@ -219,3 +248,56 @@ if [ -f "${MATCHBOX_ASSETS}/talosconfig.info" ]; then
     echo -e "\nTalosconfig information:"
     cat "${MATCHBOX_ASSETS}/talosconfig.info"
 fi
+
+# Function to wait for cluster readiness
+wait_for_cluster() {
+    echo "Waiting for cluster to be ready..."
+    
+    # Export talosconfig
+    cd /var/lib/matchbox && docker cp docker_matchbox_1:/var/lib/matchbox/assets/talosconfig ../tmp/talosconfig
+    
+    # Get first control plane IP
+    FIRST_CP=$(yq e '.nodes[] | select(.type == "controlplane") | .ip' /var/lib/matchbox/network-config.yaml | head -n1)
+    
+    # Wait for API server
+    echo "Waiting for API server..."
+    until talosctl --talosconfig tmp/talosconfig --endpoints "$FIRST_CP" health api --wait-timeout 5m; do
+        sleep 10
+    done
+    
+    # Wait for all nodes to be ready
+    echo "Waiting for all nodes..."
+    until talosctl --talosconfig tmp/talosconfig --endpoints "$FIRST_CP" health --wait-timeout 10m; do
+        sleep 10
+    done
+    
+    # Get kubeconfig
+    echo "Retrieving kubeconfig..."
+    talosctl --talosconfig tmp/talosconfig --endpoints "$FIRST_CP" kubeconfig .
+    
+    echo "Cluster is ready!"
+}
+
+# Function to bootstrap Flux
+bootstrap_flux() {
+    echo "Bootstrapping Flux..."
+    
+    # Install Flux CLI if not present
+    if ! command -v flux >/dev/null 2>&1; then
+        curl -s https://fluxcd.io/install.sh | sudo bash
+    fi
+    
+    # Bootstrap Flux
+    flux bootstrap github \
+        --owner=quinneydavid \
+        --repository=talos \
+        --branch=main \
+        --path=clusters/homelab \
+        --personal
+    
+    echo "Flux bootstrapped successfully!"
+}
+
+# Wait for cluster and bootstrap Flux
+wait_for_cluster
+bootstrap_flux
