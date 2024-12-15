@@ -1,21 +1,26 @@
-# Generated Talos configs (contain secrets)
-matchbox/assets/*.yaml
+# Sensitive information
+configs/SENSITIVE-README.md
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# Editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Temp files
-*.tmp
-*.temp
+# Generated files
 tmp/
+*.retry
+.terraform/
+terraform.tfstate*
+.terraform.tfstate*
 
-# Old/backup files
-*.bak
-*.old
+# IDE
+.idea/
+.vscode/
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+
+# Terraform variables
+terraform.tfvars
+
+# Talos configs
+controlplane.yaml
+worker.yaml
+talosconfig
