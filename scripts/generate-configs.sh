@@ -7,7 +7,8 @@ set -e
 
 # Directory setup
 MATCHBOX_ASSETS="/var/lib/matchbox/assets"
-mkdir -p "$MATCHBOX_ASSETS"
+TMP_DIR="/tmp/talos"
+mkdir -p "$MATCHBOX_ASSETS" "$TMP_DIR"
 
 # Ensure yq is available
 if ! command -v yq > /dev/null 2>&1; then
@@ -212,6 +213,8 @@ done
 if [ -f talosconfig ]; then
     echo "Moving talosconfig to ${MATCHBOX_ASSETS}/talosconfig"
     mv talosconfig "${MATCHBOX_ASSETS}/talosconfig"
+    # Also copy to tmp dir for cluster readiness check
+    cp "${MATCHBOX_ASSETS}/talosconfig" "${TMP_DIR}/talosconfig"
     
     # Create a log file with talosconfig location and export instructions
     cat > "${MATCHBOX_ASSETS}/talosconfig.info" << EOF
@@ -253,27 +256,24 @@ fi
 wait_for_cluster() {
     echo "Waiting for cluster to be ready..."
     
-    # Export talosconfig
-    cd /var/lib/matchbox && docker cp docker_matchbox_1:/var/lib/matchbox/assets/talosconfig ../tmp/talosconfig
-    
     # Get first control plane IP
     FIRST_CP=$(yq e '.nodes[] | select(.type == "controlplane") | .ip' /var/lib/matchbox/network-config.yaml | head -n1)
     
     # Wait for API server
     echo "Waiting for API server..."
-    until talosctl --talosconfig tmp/talosconfig --endpoints "$FIRST_CP" health api --wait-timeout 5m; do
+    until talosctl --talosconfig "${TMP_DIR}/talosconfig" --endpoints "$FIRST_CP" health api --wait-timeout 5m; do
         sleep 10
     done
     
     # Wait for all nodes to be ready
     echo "Waiting for all nodes..."
-    until talosctl --talosconfig tmp/talosconfig --endpoints "$FIRST_CP" health --wait-timeout 10m; do
+    until talosctl --talosconfig "${TMP_DIR}/talosconfig" --endpoints "$FIRST_CP" health --wait-timeout 10m; do
         sleep 10
     done
     
     # Get kubeconfig
     echo "Retrieving kubeconfig..."
-    talosctl --talosconfig tmp/talosconfig --endpoints "$FIRST_CP" kubeconfig .
+    talosctl --talosconfig "${TMP_DIR}/talosconfig" --endpoints "$FIRST_CP" kubeconfig .
     
     echo "Cluster is ready!"
 }
