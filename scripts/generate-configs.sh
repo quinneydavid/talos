@@ -222,7 +222,7 @@ Talos configuration file location:
 --------------------------------
 Container path: ${MATCHBOX_ASSETS}/talosconfig
 
-To export the talosconfig to your local machine, run:
+To export the talosconfig to your local machine run:
 --------------------------------------------------
 cd talos/docker && docker cp docker_matchbox_1:/var/lib/matchbox/assets/talosconfig ../tmp/talosconfig
 
@@ -259,15 +259,18 @@ wait_for_cluster() {
     # Get first control plane IP
     FIRST_CP=$(yq e '.nodes[] | select(.type == "controlplane") | .ip' /var/lib/matchbox/network-config.yaml | head -n1)
     
-    # Wait for API server
-    echo "Waiting for API server..."
-    until talosctl --talosconfig "${TMP_DIR}/talosconfig" --endpoints "$FIRST_CP" health api --wait-timeout 5m; do
-        sleep 10
-    done
+    # Get all control plane IPs
+    CP_IPS=$(yq e '.nodes[] | select(.type == "controlplane") | .ip' /var/lib/matchbox/network-config.yaml | tr '\n' ',' | sed 's/,$//')
     
-    # Wait for all nodes to be ready
-    echo "Waiting for all nodes..."
-    until talosctl --talosconfig "${TMP_DIR}/talosconfig" --endpoints "$FIRST_CP" health --wait-timeout 10m; do
+    # Get all worker IPs
+    WORKER_IPS=$(yq e '.nodes[] | select(.type == "worker") | .ip' /var/lib/matchbox/network-config.yaml | tr '\n' ',' | sed 's/,$//')
+    
+    # Wait for cluster health
+    echo "Waiting for cluster health..."
+    until talosctl --talosconfig "${TMP_DIR}/talosconfig" --endpoints "$FIRST_CP" health \
+        --control-plane-nodes "$CP_IPS" \
+        --worker-nodes "$WORKER_IPS" \
+        --wait-timeout 10m; do
         sleep 10
     done
     
