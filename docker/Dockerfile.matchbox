@@ -9,16 +9,11 @@ RUN mkdir -p /var/lib/matchbox/assets \
     /configs \
     /scripts
 
-# Copy generation script
-COPY scripts/generate-configs.sh /scripts/generate-configs.sh
-RUN chmod +x /scripts/generate-configs.sh
-
 # Create download script
 RUN echo '#!/bin/sh' > /download-talos.sh && \
     echo 'set -e' >> /download-talos.sh && \
     echo '' >> /download-talos.sh && \
     echo 'VERSION=${TALOS_VERSION:-latest}' >> /download-talos.sh && \
-    echo 'echo "Fetching Talos version: ${VERSION}..."' >> /download-talos.sh && \
     echo 'if [ "${VERSION}" = "latest" ]; then' >> /download-talos.sh && \
     echo '    VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name)' >> /download-talos.sh && \
     echo 'fi' >> /download-talos.sh && \
@@ -56,8 +51,37 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'echo "Verifying assets..."' >> /entrypoint.sh && \
     echo 'ls -lh /var/lib/matchbox/assets' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
+    echo '# Download configuration files' >> /entrypoint.sh && \
     echo 'echo "Downloading network config..."' >> /entrypoint.sh && \
     echo 'curl -fSL -o /var/lib/matchbox/network-config.yaml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/network-config.yaml"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Downloading kube-vip config..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/configs/kube-vip.yaml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/kube-vip.yaml"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Downloading client info template..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/configs/client-info-template.yml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/client-info-template.yml"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Downloading controlplane template..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/configs/controlplane.yaml.template "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/controlplane.yaml.template"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Downloading worker template..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/configs/worker.yaml.template "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/worker.yaml.template"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Downloading storage class config..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /var/lib/matchbox/configs/storage-class.yaml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/storage-class.yaml"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Download scripts' >> /entrypoint.sh && \
+    echo 'echo "Downloading bootstrap-flux script..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /scripts/bootstrap-flux.sh "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/bootstrap-flux.sh"' >> /entrypoint.sh && \
+    echo 'chmod +x /scripts/bootstrap-flux.sh' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Downloading generate-configs script..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /scripts/generate-configs.sh "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/generate-configs.sh"' >> /entrypoint.sh && \
+    echo 'chmod +x /scripts/generate-configs.sh' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Downloading setup-sops script..."' >> /entrypoint.sh && \
+    echo 'curl -fSL -o /scripts/setup-sops.sh "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/setup-sops.sh"' >> /entrypoint.sh && \
+    echo 'chmod +x /scripts/setup-sops.sh' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
     echo '/scripts/generate-configs.sh' >> /entrypoint.sh && \
