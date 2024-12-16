@@ -6,6 +6,7 @@ RUN apk add --no-cache curl jq ca-certificates yq
 RUN mkdir -p /var/lib/matchbox/assets \
     /var/lib/matchbox/profiles \
     /var/lib/matchbox/groups \
+    /var/lib/matchbox/configs \
     /configs \
     /scripts
 
