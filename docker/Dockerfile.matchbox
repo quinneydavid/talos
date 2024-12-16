@@ -67,15 +67,6 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'echo "Downloading client info template..."' >> /entrypoint.sh && \
     echo 'curl -fSL -o /var/lib/matchbox/configs/client-info-template.yml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/client-info-template.yml"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'echo "Downloading controlplane template..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/configs/controlplane.yaml.template "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/controlplane.yaml.template"' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo 'echo "Downloading worker template..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/configs/worker.yaml.template "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/worker.yaml.template"' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo 'echo "Downloading storage class config..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/configs/storage-class.yaml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/storage-class.yaml"' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
     echo '# Download scripts' >> /entrypoint.sh && \
     echo 'echo "Downloading bootstrap-flux script..."' >> /entrypoint.sh && \
     echo 'curl -fSL -o /scripts/bootstrap-flux.sh "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/bootstrap-flux.sh"' >> /entrypoint.sh && \
