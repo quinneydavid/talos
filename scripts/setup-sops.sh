@@ -2,6 +2,9 @@
 
 # Script to install and configure SOPS (Secrets OPerationS)
 # This script installs SOPS and sets up GPG for encryption
+# Note: This script is designed to run in a container environment
+# The GPG keys are generated without a passphrase for automation
+# and are only stored within the container
 
 set -e
 
@@ -34,7 +37,7 @@ EOF
     rm key-config
 
     # Export public key
-    gpg --export -a "Talos Secrets" > talos-secrets.pub.asc
+    gpg --export -a "Talos Secrets" > /var/lib/matchbox/assets/talos-secrets.pub.asc
     
     # Get key fingerprint
     KEY_FP=$(gpg --list-secret-keys "Talos Secrets" | grep -A1 "sec" | tail -n1 | awk '{print $1}')
@@ -50,8 +53,9 @@ EOF
     fi
     
     echo "SOPS setup complete!"
-    echo "Public key exported to talos-secrets.pub.asc"
+    echo "Public key exported to /var/lib/matchbox/assets/talos-secrets.pub.asc"
     echo "SOPS configuration written to .sops.yaml"
+    echo "Key fingerprint: ${KEY_FP}"
 else
     echo "GPG key for Talos Secrets already exists"
 fi
