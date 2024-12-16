@@ -2,13 +2,14 @@ FROM alpine:latest
 
 RUN apk add --no-cache curl jq ca-certificates yq
 
-# Create required directories
+# Create required directories with proper permissions
 RUN mkdir -p /var/lib/matchbox/assets \
     /var/lib/matchbox/profiles \
     /var/lib/matchbox/groups \
     /var/lib/matchbox/configs \
     /configs \
-    /scripts
+    /scripts && \
+    chmod -R 755 /var/lib/matchbox
 
 # Create download script
 RUN echo '#!/bin/sh' > /download-talos.sh && \
