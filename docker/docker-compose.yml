@@ -6,6 +6,7 @@ networks:
 
 volumes:
   matchbox-data:
+    driver: local
 
 services:
   matchbox:

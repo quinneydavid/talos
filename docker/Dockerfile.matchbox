@@ -1,6 +1,14 @@
 FROM alpine:latest
 
-RUN apk add --no-cache curl jq ca-certificates yq
+# Install required packages
+RUN apk add --no-cache curl jq ca-certificates iputils openssl wget
+
+# Install yq from binary since apk package is not available
+RUN wget https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64 -O /usr/bin/yq && \
+    chmod +x /usr/bin/yq
+
+# Update CA certificates
+RUN update-ca-certificates
 
 # Create required directories
 RUN mkdir -p /var/lib/matchbox/assets \
@@ -11,35 +19,30 @@ RUN mkdir -p /var/lib/matchbox/assets \
     /scripts && \
     chmod -R 755 /var/lib/matchbox
 
-# Create download script
-RUN echo '#!/bin/sh' > /download-talos.sh && \
-    echo 'set -e' >> /download-talos.sh && \
-    echo '' >> /download-talos.sh && \
-    echo 'VERSION=${TALOS_VERSION:-latest}' >> /download-talos.sh && \
-    echo 'if [ "${VERSION}" = "latest" ]; then' >> /download-talos.sh && \
-    echo '    VERSION=$(curl -s https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name)' >> /download-talos.sh && \
-    echo 'fi' >> /download-talos.sh && \
-    echo 'if [ -z "$VERSION" ]; then' >> /download-talos.sh && \
-    echo '    echo "Failed to get version" && exit 1' >> /download-talos.sh && \
-    echo 'fi' >> /download-talos.sh && \
-    echo 'echo "Using version: ${VERSION}"' >> /download-talos.sh && \
-    echo 'echo "Downloading vmlinuz..."' >> /download-talos.sh && \
-    echo 'curl -fSL --progress-bar -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/vmlinuz "https://github.com/siderolabs/talos/releases/download/${VERSION}/vmlinuz-amd64"' >> /download-talos.sh && \
-    echo 'echo "Downloading initramfs.xz..."' >> /download-talos.sh && \
-    echo 'curl -fSL --progress-bar -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/initramfs.xz "https://github.com/siderolabs/talos/releases/download/${VERSION}/initramfs-amd64.xz"' >> /download-talos.sh && \
-    echo 'echo "Downloading talosctl..."' >> /download-talos.sh && \
-    echo 'curl -fSL --progress-bar -H "Accept: application/octet-stream" -o /usr/local/bin/talosctl "https://github.com/siderolabs/talos/releases/download/${VERSION}/talosctl-linux-amd64"' >> /download-talos.sh && \
-    echo 'chmod +x /usr/local/bin/talosctl' >> /download-talos.sh && \
-    echo 'echo "${VERSION}" > /var/lib/matchbox/assets/version.txt' >> /download-talos.sh && \
-    echo 'touch /var/lib/matchbox/assets/.ready' >> /download-talos.sh && \
-    chmod +x /download-talos.sh
-
 # Create entrypoint script
 RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'set -e' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
+    echo '# Start matchbox server in background' >> /entrypoint.sh && \
+    echo '/matchbox -address=0.0.0.0:8080 -data-path=/var/lib/matchbox -assets-path=/var/lib/matchbox/assets &' >> /entrypoint.sh && \
+    echo 'MATCHBOX_PID=$!' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
     echo '# Download Talos assets' >> /entrypoint.sh && \
-    echo '/download-talos.sh' >> /entrypoint.sh && \
+    echo 'TALOS_VERSION=${TALOS_VERSION:-latest}' >> /entrypoint.sh && \
+    echo 'if [ "${TALOS_VERSION}" = "latest" ]; then' >> /entrypoint.sh && \
+    echo '    TALOS_VERSION=$(curl -sf https://api.github.com/repos/siderolabs/talos/releases/latest | jq -r .tag_name)' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo 'echo "Using version: ${TALOS_VERSION}"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Download Talos assets' >> /entrypoint.sh && \
+    echo 'echo "Downloading vmlinuz..."' >> /entrypoint.sh && \
+    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/vmlinuz "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/vmlinuz-amd64"' >> /entrypoint.sh && \
+    echo 'echo "Downloading initramfs.xz..."' >> /entrypoint.sh && \
+    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/initramfs.xz "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/initramfs-amd64.xz"' >> /entrypoint.sh && \
+    echo 'echo "Downloading talosctl..."' >> /entrypoint.sh && \
+    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /usr/local/bin/talosctl "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talosctl-linux-amd64"' >> /entrypoint.sh && \
+    echo 'chmod +x /usr/local/bin/talosctl' >> /entrypoint.sh && \
+    echo 'echo "${TALOS_VERSION}" > /var/lib/matchbox/assets/version.txt' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Verify required environment variables' >> /entrypoint.sh && \
     echo 'if [ -z "$GITHUB_REPO" ]; then' >> /entrypoint.sh && \
@@ -47,50 +50,30 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo '  exit 1' >> /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'REPO_OWNER=$(echo $GITHUB_REPO | cut -d "/" -f4)' >> /entrypoint.sh && \
-    echo 'REPO_NAME=$(echo $GITHUB_REPO | cut -d "/" -f5)' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo 'echo "Verifying assets..."' >> /entrypoint.sh && \
-    echo 'ls -lh /var/lib/matchbox/assets' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo '# Create necessary directories' >> /entrypoint.sh && \
-    echo 'mkdir -p /var/lib/matchbox/configs' >> /entrypoint.sh && \
-    echo 'chmod -R 755 /var/lib/matchbox' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
     echo '# Download configuration files' >> /entrypoint.sh && \
     echo 'echo "Downloading network config..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/network-config.yaml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/network-config.yaml"' >> /entrypoint.sh && \
+    echo 'curl -fSL --retry 3 --retry-delay 3 -o /var/lib/matchbox/network-config.yaml "${GITHUB_REPO}/raw/main/configs/network-config.yaml"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'echo "Downloading kube-vip config..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/configs/kube-vip.yaml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/kube-vip.yaml"' >> /entrypoint.sh && \
+    echo '# Download configurations' >> /entrypoint.sh && \
+    echo 'for config in kube-vip.yaml client-info-template.yml; do' >> /entrypoint.sh && \
+    echo '    echo "Downloading ${config}..."' >> /entrypoint.sh && \
+    echo '    curl -fSL --retry 3 --retry-delay 3 -o "/var/lib/matchbox/configs/${config}" "${GITHUB_REPO}/raw/main/configs/${config}"' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'echo "Downloading client info template..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /var/lib/matchbox/configs/client-info-template.yml "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/configs/client-info-template.yml"' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo '# Download scripts' >> /entrypoint.sh && \
-    echo 'echo "Downloading bootstrap-flux script..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /scripts/bootstrap-flux.sh "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/bootstrap-flux.sh"' >> /entrypoint.sh && \
-    echo 'chmod +x /scripts/bootstrap-flux.sh' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo 'echo "Downloading generate-configs script..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /scripts/generate-configs.sh "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/generate-configs.sh"' >> /entrypoint.sh && \
-    echo 'chmod +x /scripts/generate-configs.sh' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo 'echo "Downloading setup-sops script..."' >> /entrypoint.sh && \
-    echo 'curl -fSL -o /scripts/setup-sops.sh "https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/scripts/setup-sops.sh"' >> /entrypoint.sh && \
-    echo 'chmod +x /scripts/setup-sops.sh' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
+    echo '# Generate Talos configurations' >> /entrypoint.sh && \
     echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
     echo '/scripts/generate-configs.sh' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo 'exec /matchbox -address=0.0.0.0:8080 -data-path=/var/lib/matchbox -assets-path=/var/lib/matchbox/assets "$@"' >> /entrypoint.sh && \
+    echo '# Wait for matchbox to exit' >> /entrypoint.sh && \
+    echo 'wait $MATCHBOX_PID' >> /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
 # Install matchbox binary
-RUN curl -LO https://github.com/poseidon/matchbox/releases/download/v0.10.0/matchbox-v0.10.0-linux-amd64.tar.gz && \
+RUN curl -LO --retry 3 --retry-delay 3 https://github.com/poseidon/matchbox/releases/download/v0.10.0/matchbox-v0.10.0-linux-amd64.tar.gz && \
     tar xzf matchbox-v0.10.0-linux-amd64.tar.gz && \
     mv matchbox-v0.10.0-linux-amd64/matchbox /matchbox && \
-    rm -rf matchbox-v0.10.0-linux-amd64*
+    rm -rf matchbox-v0.10.0-linux-amd64* && \
+    chmod +x /matchbox
 
 # Create data volume
 VOLUME /var/lib/matchbox

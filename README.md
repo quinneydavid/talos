@@ -31,6 +31,7 @@ The system uses a simple, secure approach to manage Talos configurations:
 │   └── Dockerfile.matchbox-tftp # TFTP server for PXE boot
 └── scripts/                  # Utility scripts
     ├── generate-configs.sh   # Config generation script
+    ├── create-cluster.sh     # Cluster creation script
     └── bootstrap-flux.sh     # Flux bootstrap script
 ```
 
@@ -175,13 +176,22 @@ Cluster-wide configurations:
    cd docker
    docker-compose up -d
    ```
+3. Create the cluster using the create-cluster.sh script:
+   ```bash
+   # For just cluster creation:
+   ./scripts/create-cluster.sh
 
-The system will automatically:
-- Generate Talos configurations
-- Set up PXE boot environment
-- Wait for cluster to be ready
-- Bootstrap Flux for GitOps management
-- Deploy core infrastructure components
+   # For cluster creation with Flux bootstrapping:
+   ./scripts/create-cluster.sh --with-flux
+   ```
+
+The create-cluster.sh script will:
+- Get talosconfig from the matchbox container
+- Wait for all nodes to be ready
+- Bootstrap the first control plane node
+- Wait for Kubernetes to be ready
+- Get kubeconfig for cluster access
+- Optionally bootstrap Flux for GitOps management
 
 ### Version Management
 
