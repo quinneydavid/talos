@@ -19,6 +19,11 @@ RUN mkdir -p /var/lib/matchbox/assets \
     /scripts && \
     chmod -R 755 /var/lib/matchbox
 
+# Copy local files
+COPY scripts/generate-configs.sh /scripts/
+COPY configs/kube-vip.yaml /var/lib/matchbox/configs/
+RUN chmod +x /scripts/generate-configs.sh
+
 # Create entrypoint script
 RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'set -e' >> /entrypoint.sh && \
@@ -50,19 +55,16 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo '  exit 1' >> /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# Download configuration files' >> /entrypoint.sh && \
+    echo '# Download network config from GitHub' >> /entrypoint.sh && \
     echo 'echo "Downloading network config..."' >> /entrypoint.sh && \
     echo 'curl -fSL --retry 3 --retry-delay 3 -o /var/lib/matchbox/network-config.yaml "${GITHUB_REPO}/raw/main/configs/network-config.yaml"' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo '# Download configurations' >> /entrypoint.sh && \
-    echo 'for config in kube-vip.yaml client-info-template.yml; do' >> /entrypoint.sh && \
-    echo '    echo "Downloading ${config}..."' >> /entrypoint.sh && \
-    echo '    curl -fSL --retry 3 --retry-delay 3 -o "/var/lib/matchbox/configs/${config}" "${GITHUB_REPO}/raw/main/configs/${config}"' >> /entrypoint.sh && \
-    echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Generate Talos configurations' >> /entrypoint.sh && \
     echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
     echo '/scripts/generate-configs.sh' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Create ready file for TFTP server' >> /entrypoint.sh && \
+    echo 'touch /var/lib/matchbox/assets/.ready' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Wait for matchbox to exit' >> /entrypoint.sh && \
     echo 'wait $MATCHBOX_PID' >> /entrypoint.sh && \
