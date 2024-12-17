@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Check if age key file exists
+if [ ! -f "$HOME/.config/sops/age/keys.txt" ]; then
+    echo "Error: SOPS age key not found at $HOME/.config/sops/age/keys.txt"
+    echo "Please ensure your age private key is stored there"
+    exit 1
+fi
+
 # Bootstrap Flux onto the cluster
 flux bootstrap github \
   --owner=quinneydavid \
@@ -8,6 +15,10 @@ flux bootstrap github \
   --path=clusters/homelab \
   --personal \
   --components-extra=image-reflector-controller,image-automation-controller
+
+# Create SOPS secret for Flux
+kubectl -n flux-system create secret generic sops-age \
+    --from-file=age.agekey=$HOME/.config/sops/age/keys.txt
 
 # Create the Flux Kustomizations for different components
 cat <<EOF | kubectl apply -f -
@@ -23,6 +34,10 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -38,6 +53,10 @@ spec:
     name: flux-system
   dependsOn:
     - name: infrastructure
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -53,6 +72,10 @@ spec:
     name: flux-system
   dependsOn:
     - name: infrastructure
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
 EOF
 
 echo "Flux bootstrap complete. Directory structure created:"
@@ -60,3 +83,9 @@ echo "clusters/homelab/"
 echo "├── infrastructure/  # Core infrastructure (kube-vip, etc.)"
 echo "├── apps/           # Applications"
 echo "└── config/         # Cluster-wide configurations"
+
+echo ""
+echo "SOPS Setup:"
+echo "1. Store your age private key at: $HOME/.config/sops/age/keys.txt"
+echo "2. The key has been added to the cluster as a Kubernetes secret"
+echo "3. Flux will use this key to decrypt secrets in the repository"

@@ -1,11 +1,6 @@
-#!/bin/sh
+#!/bin/bash
 
-# Script to install and configure SOPS (Secrets OPerationS)
-# This script installs SOPS and sets up GPG for encryption
-# Note: This script is designed to run in a container environment
-# The GPG keys are generated without a passphrase for automation
-# and are only stored within the container
-
+# Script to install and configure SOPS (Secrets OPerationS) with age encryption
 set -e
 
 # Install SOPS if not present
@@ -17,45 +12,55 @@ if ! command -v sops >/dev/null 2>&1; then
     sudo mv sops /usr/local/bin/
 fi
 
-# Check if GPG key exists
-if ! gpg --list-secret-keys | grep -q "Talos Secrets"; then
-    echo "Generating GPG key for SOPS..."
-    # Generate GPG key
-    cat >key-config <<EOF
-%echo Generating GPG key for Talos Secrets
-Key-Type: RSA
-Key-Length: 4096
-Name-Real: Talos Secrets
-Name-Email: talos@local
-Expire-Date: 0
-%no-protection
-%commit
-EOF
+# Install age if not present
+if ! command -v age-keygen >/dev/null 2>&1; then
+    echo "Installing age..."
+    AGE_VERSION=$(curl -s https://api.github.com/repos/FiloSottile/age/releases/latest | jq -r .tag_name)
+    curl -Lo age.tar.gz "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+    tar xf age.tar.gz
+    sudo mv age/age* /usr/local/bin/
+    rm -rf age age.tar.gz
+fi
 
-    # Generate key
-    gpg --batch --generate-key key-config
-    rm key-config
+# Setup age key directory
+AGE_KEY_DIR="$HOME/.config/sops/age"
+mkdir -p "$AGE_KEY_DIR"
 
-    # Export public key
-    gpg --export -a "Talos Secrets" > /var/lib/matchbox/assets/talos-secrets.pub.asc
+# Generate age key if it doesn't exist
+if [ ! -f "$AGE_KEY_DIR/keys.txt" ]; then
+    echo "Generating new age key..."
+    age-keygen -o "$AGE_KEY_DIR/keys.txt"
     
-    # Get key fingerprint
-    KEY_FP=$(gpg --list-secret-keys "Talos Secrets" | grep -A1 "sec" | tail -n1 | awk '{print $1}')
+    # Extract public key
+    PUBLIC_KEY=$(age-keygen -y "$AGE_KEY_DIR/keys.txt")
     
-    # Create .sops.yaml if it doesn't exist
-    if [ ! -f .sops.yaml ]; then
-        cat >.sops.yaml <<EOF
+    # Create .sops.yaml
+    cat >.sops.yaml <<EOF
 creation_rules:
-  - path_regex: \.enc\.yaml$
+  - path_regex: .*.enc.yaml
     encrypted_regex: ^(data|stringData)$
-    pgp: ${KEY_FP}
+    age: >-
+      ${PUBLIC_KEY}
 EOF
-    fi
     
     echo "SOPS setup complete!"
-    echo "Public key exported to /var/lib/matchbox/assets/talos-secrets.pub.asc"
+    echo "Private key location: $AGE_KEY_DIR/keys.txt"
+    echo "Public key: $PUBLIC_KEY"
     echo "SOPS configuration written to .sops.yaml"
-    echo "Key fingerprint: ${KEY_FP}"
+    echo ""
+    echo "IMPORTANT: Backup your private key ($AGE_KEY_DIR/keys.txt) securely!"
+    echo "This key will be needed to decrypt secrets and should never be committed to git."
 else
-    echo "GPG key for Talos Secrets already exists"
+    echo "Age key already exists at $AGE_KEY_DIR/keys.txt"
+    echo "Using existing key for SOPS configuration"
 fi
+
+# Instructions for Flux
+echo ""
+echo "To use with Flux:"
+echo "1. The private key is stored at: $AGE_KEY_DIR/keys.txt"
+echo "2. When running bootstrap-flux.sh, it will:"
+echo "   - Create a Kubernetes secret with this key"
+echo "   - Configure Flux to use it for decryption"
+echo ""
+echo "Note: Keep your private key safe and never commit it to git!"
