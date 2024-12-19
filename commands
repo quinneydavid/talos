@@ -2,5 +2,12 @@
 cd ~/vscode/talos/docker && docker-compose down && docker-compose up
 
 
-#rebuild env
-cd ~/vscode/talos/docker && docker-compose down && docker-compose build matchbox && docker-compose up
+#rebuild env with logs
+cd ~/vscode/talos && docker-compose -f docker/docker-compose.yml down -v && docker-compose -f docker/docker-compose.yml up --build -d && docker-compose -f docker/docker-compose.yml logs -f
+
+#bootstrap cluser
+~/vscode/talos/scripts/create-cluster.sh --with-flux
+~/vscode/talos/scripts/create-cluster.sh 
+
+#delete vms
+~/vscore/terraform/nutanix-cluster/delete-vms.sh

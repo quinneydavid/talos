@@ -1,7 +1,7 @@
 FROM alpine:latest
 
 # Install required packages
-RUN apk add --no-cache curl jq ca-certificates iputils openssl wget
+RUN apk add --no-cache curl jq ca-certificates iputils openssl wget bash
 
 # Install yq from binary since apk package is not available
 RUN wget https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64 -O /usr/bin/yq && \
@@ -21,11 +21,14 @@ RUN mkdir -p /var/lib/matchbox/assets \
 
 # Copy local files
 COPY scripts/generate-configs.sh /scripts/
-COPY configs/kube-vip.yaml /var/lib/matchbox/configs/
-RUN chmod +x /scripts/generate-configs.sh
+
+# Set permissions and verify script
+RUN chmod +x /scripts/generate-configs.sh && \
+    ls -la /scripts/generate-configs.sh && \
+    echo "Script permissions set and verified"
 
 # Create entrypoint script
-RUN echo '#!/bin/sh' > /entrypoint.sh && \
+RUN echo '#!/bin/bash' > /entrypoint.sh && \
     echo 'set -e' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Start matchbox server in background' >> /entrypoint.sh && \
@@ -39,29 +42,52 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
     echo 'echo "Using version: ${TALOS_VERSION}"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# Download Talos assets' >> /entrypoint.sh && \
-    echo 'echo "Downloading vmlinuz..."' >> /entrypoint.sh && \
-    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/vmlinuz "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/vmlinuz-amd64"' >> /entrypoint.sh && \
+    echo '# Download Talos assets from custom PXE URL' >> /entrypoint.sh && \
+    echo 'echo "Downloading kernel..."' >> /entrypoint.sh && \
+    echo 'SCHEMATIC_ID=$(echo "${TALOS_VERSION}" | sed -n "s|.*/pxe/\([^/]*\)/.*|\1|p")' >> /entrypoint.sh && \
+    echo 'TALOS_VER=$(echo "${TALOS_VERSION}" | sed -n "s|.*/\(v[^/]*\)/.*|\1|p")' >> /entrypoint.sh && \
+    echo 'KERNEL_URL="https://pxe.factory.talos.dev/image/${SCHEMATIC_ID}/${TALOS_VER}/kernel-amd64"' >> /entrypoint.sh && \
+    echo 'echo "Kernel URL: ${KERNEL_URL}"' >> /entrypoint.sh && \
+    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/vmlinuz "${KERNEL_URL}"' >> /entrypoint.sh && \
     echo 'echo "Downloading initramfs.xz..."' >> /entrypoint.sh && \
-    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/initramfs.xz "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/initramfs-amd64.xz"' >> /entrypoint.sh && \
+    echo 'INITRAMFS_URL="https://pxe.factory.talos.dev/image/${SCHEMATIC_ID}/${TALOS_VER}/initramfs-amd64.xz"' >> /entrypoint.sh && \
+    echo 'echo "Initramfs URL: ${INITRAMFS_URL}"' >> /entrypoint.sh && \
+    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/initramfs.xz "${INITRAMFS_URL}"' >> /entrypoint.sh && \
     echo 'echo "Downloading talosctl..."' >> /entrypoint.sh && \
-    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /usr/local/bin/talosctl "https://github.com/siderolabs/talos/releases/download/${TALOS_VERSION}/talosctl-linux-amd64"' >> /entrypoint.sh && \
+    echo 'wget -q --show-progress --progress=bar:force:noscroll https://github.com/siderolabs/talos/releases/download/v1.9.0/talosctl-linux-amd64 -O /usr/local/bin/talosctl' >> /entrypoint.sh && \
     echo 'chmod +x /usr/local/bin/talosctl' >> /entrypoint.sh && \
     echo 'echo "${TALOS_VERSION}" > /var/lib/matchbox/assets/version.txt' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Verify required environment variables' >> /entrypoint.sh && \
-    echo 'if [ -z "$GITHUB_REPO" ]; then' >> /entrypoint.sh && \
-    echo '  echo "GITHUB_REPO environment variable must be set"' >> /entrypoint.sh && \
-    echo '  exit 1' >> /entrypoint.sh && \
-    echo 'fi' >> /entrypoint.sh && \
+    echo 'required_vars="GITHUB_REPO CLUSTER_NAME CLUSTER_ENDPOINT CLUSTER_DNS_DOMAIN CLUSTER_POD_SUBNET CLUSTER_SERVICE_SUBNET CONTROL_PLANE_VIP"' >> /entrypoint.sh && \
+    echo 'for var in $required_vars; do' >> /entrypoint.sh && \
+    echo '  if [ -z "${!var}" ]; then' >> /entrypoint.sh && \
+    echo '    echo "$var environment variable must be set"' >> /entrypoint.sh && \
+    echo '    exit 1' >> /entrypoint.sh && \
+    echo '  fi' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Download network config from GitHub' >> /entrypoint.sh && \
     echo 'echo "Downloading network config..."' >> /entrypoint.sh && \
-    echo 'curl -fSL --retry 3 --retry-delay 3 -o /var/lib/matchbox/network-config.yaml "${GITHUB_REPO}/raw/main/configs/network-config.yaml"' >> /entrypoint.sh && \
+    echo 'if ! curl -fSL --retry 3 --retry-delay 3 -o /var/lib/matchbox/network-config.yaml "${GITHUB_REPO}/raw/main/configs/network-config.yaml"; then' >> /entrypoint.sh && \
+    echo '  echo "Error: Failed to download network config from GitHub"' >> /entrypoint.sh && \
+    echo '  exit 1' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Verify network config exists' >> /entrypoint.sh && \
+    echo 'if [ ! -f /var/lib/matchbox/network-config.yaml ]; then' >> /entrypoint.sh && \
+    echo '  echo "Error: network-config.yaml not found"' >> /entrypoint.sh && \
+    echo '  exit 1' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Generate Talos configurations' >> /entrypoint.sh && \
     echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
-    echo '/scripts/generate-configs.sh' >> /entrypoint.sh && \
+    echo 'if [ ! -x /scripts/generate-configs.sh ]; then' >> /entrypoint.sh && \
+    echo '  echo "Error: generate-configs.sh not found or not executable"' >> /entrypoint.sh && \
+    echo '  ls -la /scripts/' >> /entrypoint.sh && \
+    echo '  exit 1' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo 'bash /scripts/generate-configs.sh' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Create ready file for TFTP server' >> /entrypoint.sh && \
     echo 'touch /var/lib/matchbox/assets/.ready' >> /entrypoint.sh && \
@@ -85,4 +111,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 EXPOSE 8080
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]

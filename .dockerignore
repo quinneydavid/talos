@@ -1,0 +1,8 @@
+# Explicitly allow scripts directory
+!scripts/
+!configs/
+
+# Common files to ignore
+.git
+.env
+*.log

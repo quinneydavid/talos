@@ -2,11 +2,10 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: synology-iscsi
-  annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
 provisioner: csi.san.synology.com
 parameters:
-  fsType: ext4
+  dsm: "10.44.5.2"
+  location: "/volume1"
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
 allowVolumeExpansion: true

@@ -1,0 +1,6 @@
+customization:
+  extraKernelArgs:
+    - talos.platform=metal
+  systemExtensions:
+    officialExtensions:
+      - siderolabs/iscsi-tools

@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Install or update Flux CLI
+echo "Installing/updating Flux CLI..."
+curl -s https://fluxcd.io/install.sh | sudo bash
+
 # Check if age key file exists
 if [ ! -f "$HOME/.config/sops/age/keys.txt" ]; then
     echo "Error: SOPS age key not found at $HOME/.config/sops/age/keys.txt"
@@ -7,20 +11,45 @@ if [ ! -f "$HOME/.config/sops/age/keys.txt" ]; then
     exit 1
 fi
 
+# Uninstall any existing Flux installation
+echo "Cleaning up any existing Flux installation..."
+flux uninstall --silent || true
+
+# Install Flux components
+echo "Installing Flux components..."
+flux install \
+  --components-extra=image-reflector-controller,image-automation-controller \
+  --network-policy=false \
+  --timeout=5m
+
+# Wait for Flux CRDs to be ready
+echo "Waiting for Flux CRDs to be ready..."
+kubectl wait --for=condition=established --timeout=60s crd/gitrepositories.source.toolkit.fluxcd.io || true
+kubectl wait --for=condition=established --timeout=60s crd/kustomizations.kustomize.toolkit.fluxcd.io || true
+
 # Bootstrap Flux onto the cluster
+echo "Bootstrapping Flux onto the cluster..."
 flux bootstrap github \
   --owner=quinneydavid \
   --repository=talos \
   --branch=main \
   --path=clusters/homelab \
   --personal \
-  --components-extra=image-reflector-controller,image-automation-controller
+  --token-auth \
+  --components-extra=image-reflector-controller,image-automation-controller \
+  --timeout=5m
+
+# Wait for flux-system namespace
+echo "Waiting for flux-system namespace..."
+kubectl wait --for=condition=established --timeout=60s namespace/flux-system || true
 
 # Create SOPS secret for Flux
+echo "Creating SOPS secret..."
 kubectl -n flux-system create secret generic sops-age \
     --from-file=age.agekey=$HOME/.config/sops/age/keys.txt
 
 # Create the Flux Kustomizations for different components
+echo "Creating Flux Kustomizations..."
 cat <<EOF | kubectl apply -f -
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -80,7 +109,7 @@ EOF
 
 echo "Flux bootstrap complete. Directory structure created:"
 echo "clusters/homelab/"
-echo "├── infrastructure/  # Core infrastructure (kube-vip, etc.)"
+echo "├── infrastructure/  # Core infrastructure (kube-vip etc.)"
 echo "├── apps/           # Applications"
 echo "└── config/         # Cluster-wide configurations"
 
