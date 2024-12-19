@@ -10,7 +10,7 @@ data:
         port: 5000
         https: false
         username: synology-csi
-        password: "^PsjMQ7BEnfHH"
+        password: ""
 ---
 apiVersion: storage.k8s.io/v1
 kind: CSIDriver
