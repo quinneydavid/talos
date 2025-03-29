@@ -4,27 +4,27 @@ network:
 
 # Node-specific configurations (using DHCP)
 nodes:
-  cp1:
+  prodcp1:
     mac: "50:6b:8d:96:f7:50"
-    hostname: "cp1"
+    hostname: "prodcp1"
     type: "controlplane"
 
-  cp2:
+  prodcp2:
     mac: "50:6b:8d:e3:2e:e7"
-    hostname: "cp2"
+    hostname: "prodcp2"
     type: "controlplane"
 
-  cp3:
+  prodcp3:
     mac: "50:6b:8d:be:b5:e5"
-    hostname: "cp3"
+    hostname: "prodcp3"
     type: "controlplane"
 
-  worker1:
+  prodworker1:
     mac: "50:6b:8d:ff:7b:7e"
-    hostname: "worker1"
+    hostname: "prodworker1"
     type: "worker"
 
-  worker2:
+  prodworker2:
     mac: "50:6b:8d:91:08:d3"
-    hostname: "worker2"
+    hostname: "prodworker2"
     type: "worker"
