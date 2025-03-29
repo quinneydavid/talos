@@ -1,0 +1,60 @@
+# Global settings
+global:
+  # Any global settings that apply to all clusters
+
+# Cluster configurations
+clusters:
+  prod:
+    network:
+      vip: "10.88.8.210"  # VIP for Kubernetes API
+    cluster:
+      name: "prod.quinney.cloud"
+      endpoint: "https://api.prod.quinney.cloud:6443"
+      dns_domain: "cluster.local"
+      pod_subnet: "10.244.0.0/16"
+      service_subnet: "10.96.0.0/12"
+    nodes:
+      prodcp1:
+        mac: "50:6b:8d:96:f7:50"
+        hostname: "prodcp1"
+        type: "controlplane"
+      prodcp2:
+        mac: "50:6b:8d:e3:2e:e7"
+        hostname: "prodcp2"
+        type: "controlplane"
+      prodcp3:
+        mac: "50:6b:8d:be:b5:e5"
+        hostname: "prodcp3"
+        type: "controlplane"
+      prodworker1:
+        mac: "50:6b:8d:ff:7b:7e"
+        hostname: "prodworker1"
+        type: "worker"
+      prodworker2:
+        mac: "50:6b:8d:91:08:d3"
+        hostname: "prodworker2"
+        type: "worker"
+
+  # Example of a second cluster (commented out)
+  # dev:
+  #   network:
+  #     vip: "10.88.8.220"  # VIP for Kubernetes API
+  #   cluster:
+  #     name: "dev.quinney.cloud"
+  #     endpoint: "https://api.dev.quinney.cloud:6443"
+  #     dns_domain: "cluster.local"
+  #     pod_subnet: "10.245.0.0/16"
+  #     service_subnet: "10.97.0.0/12"
+  #   nodes:
+  #     devcp1:
+  #       mac: "aa:bb:cc:dd:ee:ff"
+  #       hostname: "devcp1"
+  #       type: "controlplane"
+  #     devcp2:
+  #       mac: "aa:bb:cc:dd:ee:gg"
+  #       hostname: "devcp2"
+  #       type: "controlplane"
+  #     devworker1:
+  #       mac: "aa:bb:cc:dd:ee:hh"
+  #       hostname: "devworker1"
+  #       type: "worker"
