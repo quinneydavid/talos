@@ -167,59 +167,53 @@ perform_dns_lookup() {
     echo "$ip"
 }
 
-# Extract node information from network configuration
-if [ -f "${NETWORK_CONFIG_PATH}" ]; then
-    echo "Extracting node information from network configuration for cluster: ${CLUSTER_ID}..."
-    
-    # Get control plane nodes
-    CONTROL_PLANE_NODES=$(yq e ".clusters.${CLUSTER_ID}.nodes[] | select(.type == \"controlplane\") | .hostname" "${NETWORK_CONFIG_PATH}")
-    CONTROL_PLANE_ARRAY=()
-    while IFS= read -r node; do
-        CONTROL_PLANE_ARRAY+=("$node")
-        # Perform DNS lookup for the node
-        node_ip=$(perform_dns_lookup "$node")
-        if [ -n "$node_ip" ]; then
-            echo "Control plane node ${node} resolved to ${node_ip}"
-        fi
-    done <<< "$CONTROL_PLANE_NODES"
-    
-    # Get worker nodes
-    WORKER_NODES=$(yq e ".clusters.${CLUSTER_ID}.nodes[] | select(.type == \"worker\") | .hostname" "${NETWORK_CONFIG_PATH}")
-    WORKER_ARRAY=()
-    while IFS= read -r node; do
-        WORKER_ARRAY+=("$node")
-        # Perform DNS lookup for the node
-        node_ip=$(perform_dns_lookup "$node")
-        if [ -n "$node_ip" ]; then
-            echo "Worker node ${node} resolved to ${node_ip}"
-        fi
-    done <<< "$WORKER_NODES"
-    
-    # Set first control plane node
-    if [ ${#CONTROL_PLANE_ARRAY[@]} -gt 0 ]; then
-        CONTROL_PLANE_1_NAME="${CONTROL_PLANE_ARRAY[0]}"
-        echo "First control plane node: ${CONTROL_PLANE_1_NAME}"
-    else
-        echo "Error: No control plane nodes found in network configuration for cluster ${CLUSTER_ID}"
-        exit 1
-    fi
-    
-    # Create comma-separated list of all nodes
-    ALL_NODES=("${CONTROL_PLANE_ARRAY[@]}" "${WORKER_ARRAY[@]}")
-    ALL_NODE_NAMES=$(IFS=,; echo "${ALL_NODES[*]}")
-    echo "All nodes: ${ALL_NODE_NAMES}"
-else
-    echo "Warning: Network configuration file not found at ${NETWORK_CONFIG_PATH}"
-    echo "Using default node names..."
-    
-    # Default node hostnames for discovery-based access
-    CONTROL_PLANE_1_NAME="prodcp1"
-    CONTROL_PLANE_2_NAME="prodcp2"
-    CONTROL_PLANE_3_NAME="prodcp3"
-    WORKER_1_NAME="prodworker1"
-    WORKER_2_NAME="prodworker2"
-    ALL_NODE_NAMES="${CONTROL_PLANE_1_NAME},${CONTROL_PLANE_2_NAME},${CONTROL_PLANE_3_NAME},${WORKER_1_NAME},${WORKER_2_NAME}"
+# Verify network configuration file exists
+if [ ! -f "${NETWORK_CONFIG_PATH}" ]; then
+    echo "Error: Network configuration file not found at ${NETWORK_CONFIG_PATH}"
+    echo "The network configuration file is required for cluster creation."
+    exit 1
 fi
+
+# Extract node information from network configuration
+echo "Extracting node information from network configuration for cluster: ${CLUSTER_ID}..."
+
+# Get control plane nodes
+CONTROL_PLANE_NODES=$(yq e ".clusters.${CLUSTER_ID}.nodes[] | select(.type == \"controlplane\") | .hostname" "${NETWORK_CONFIG_PATH}")
+CONTROL_PLANE_ARRAY=()
+while IFS= read -r node; do
+    CONTROL_PLANE_ARRAY+=("$node")
+    # Perform DNS lookup for the node
+    node_ip=$(perform_dns_lookup "$node")
+    if [ -n "$node_ip" ]; then
+        echo "Control plane node ${node} resolved to ${node_ip}"
+    fi
+done <<< "$CONTROL_PLANE_NODES"
+
+# Get worker nodes
+WORKER_NODES=$(yq e ".clusters.${CLUSTER_ID}.nodes[] | select(.type == \"worker\") | .hostname" "${NETWORK_CONFIG_PATH}")
+WORKER_ARRAY=()
+while IFS= read -r node; do
+    WORKER_ARRAY+=("$node")
+    # Perform DNS lookup for the node
+    node_ip=$(perform_dns_lookup "$node")
+    if [ -n "$node_ip" ]; then
+        echo "Worker node ${node} resolved to ${node_ip}"
+    fi
+done <<< "$WORKER_NODES"
+
+# Set first control plane node
+if [ ${#CONTROL_PLANE_ARRAY[@]} -gt 0 ]; then
+    CONTROL_PLANE_1_NAME="${CONTROL_PLANE_ARRAY[0]}"
+    echo "First control plane node: ${CONTROL_PLANE_1_NAME}"
+else
+    echo "Error: No control plane nodes found in network configuration for cluster ${CLUSTER_ID}"
+    exit 1
+fi
+
+# Create comma-separated list of all nodes
+ALL_NODES=("${CONTROL_PLANE_ARRAY[@]}" "${WORKER_ARRAY[@]}")
+ALL_NODE_NAMES=$(IFS=,; echo "${ALL_NODES[*]}")
+echo "All nodes: ${ALL_NODE_NAMES}"
 
 # Function to check if a command succeeds with timeout and retries
 wait_for_success() {
