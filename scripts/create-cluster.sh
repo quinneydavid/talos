@@ -106,33 +106,34 @@ TALOS_UPGRADE_IMAGE="factory.talos.dev/installer/c9078f9419961640c712a8bf2bb9174
 # Create tmp directory if it doesn't exist
 mkdir -p "${TALOS_PATH}/tmp"
 
+# Verify network configuration file exists
+if [ ! -f "${NETWORK_CONFIG_PATH}" ]; then
+    echo "Error: Network configuration file not found at ${NETWORK_CONFIG_PATH}"
+    echo "The network configuration file is required for cluster creation."
+    exit 1
+fi
+
 # Read configuration from network-config.yaml
 echo "Reading configuration from network-config.yaml for cluster: ${CLUSTER_ID}..."
-if [ -f "${NETWORK_CONFIG_PATH}" ]; then
-    # Check if the specified cluster exists
-    if ! yq e ".clusters.${CLUSTER_ID}" "${NETWORK_CONFIG_PATH}" > /dev/null 2>&1; then
-        echo "Error: Cluster '${CLUSTER_ID}' not found in network-config.yaml"
-        echo "Available clusters:"
-        yq e '.clusters | keys | .[]' "${NETWORK_CONFIG_PATH}"
-        exit 1
-    fi
-    
-    # Get cluster configuration
-    CLUSTER_NAME=$(yq e ".clusters.${CLUSTER_ID}.cluster.name" "${NETWORK_CONFIG_PATH}")
-    CLUSTER_ENDPOINT=$(yq e ".clusters.${CLUSTER_ID}.cluster.endpoint" "${NETWORK_CONFIG_PATH}")
-    CONTROL_PLANE_VIP=$(yq e ".clusters.${CLUSTER_ID}.network.vip" "${NETWORK_CONFIG_PATH}")
-    
-    echo "Using configuration from network-config.yaml:"
-    echo "  Cluster ID: ${CLUSTER_ID}"
-    echo "  Cluster Name: ${CLUSTER_NAME}"
-    echo "  Cluster Endpoint: ${CLUSTER_ENDPOINT}"
-    echo "  Control Plane VIP: ${CONTROL_PLANE_VIP}"
-else
-    echo "Warning: network-config.yaml not found at ${NETWORK_CONFIG_PATH}"
-    echo "Using default or environment variable values..."
-    CLUSTER_NAME=${CLUSTER_NAME:-k8s.lan}
-    CLUSTER_ENDPOINT=${CLUSTER_ENDPOINT:-https://api.k8s.lan:6443}
+
+# Check if the specified cluster exists
+if ! yq e ".clusters.${CLUSTER_ID}" "${NETWORK_CONFIG_PATH}" > /dev/null 2>&1; then
+    echo "Error: Cluster '${CLUSTER_ID}' not found in network-config.yaml"
+    echo "Available clusters:"
+    yq e '.clusters | keys | .[]' "${NETWORK_CONFIG_PATH}"
+    exit 1
 fi
+
+# Get cluster configuration
+CLUSTER_NAME=$(yq e ".clusters.${CLUSTER_ID}.cluster.name" "${NETWORK_CONFIG_PATH}")
+CLUSTER_ENDPOINT=$(yq e ".clusters.${CLUSTER_ID}.cluster.endpoint" "${NETWORK_CONFIG_PATH}")
+CONTROL_PLANE_VIP=$(yq e ".clusters.${CLUSTER_ID}.network.vip" "${NETWORK_CONFIG_PATH}")
+
+echo "Using configuration from network-config.yaml:"
+echo "  Cluster ID: ${CLUSTER_ID}"
+echo "  Cluster Name: ${CLUSTER_NAME}"
+echo "  Cluster Endpoint: ${CLUSTER_ENDPOINT}"
+echo "  Control Plane VIP: ${CONTROL_PLANE_VIP}"
 
 # Function to perform DNS lookup
 perform_dns_lookup() {
@@ -166,13 +167,6 @@ perform_dns_lookup() {
     
     echo "$ip"
 }
-
-# Verify network configuration file exists
-if [ ! -f "${NETWORK_CONFIG_PATH}" ]; then
-    echo "Error: Network configuration file not found at ${NETWORK_CONFIG_PATH}"
-    echo "The network configuration file is required for cluster creation."
-    exit 1
-fi
 
 # Extract node information from network configuration
 echo "Extracting node information from network configuration for cluster: ${CLUSTER_ID}..."
