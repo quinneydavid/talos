@@ -23,10 +23,12 @@ The system uses a simple, secure approach to manage Talos configurations:
 │       ├── apps/             # Application deployments
 │       └── config/           # Cluster-wide configurations
 ├── configs/                   # Configuration files
-│   ├── network-config.yaml   # Node and network configuration
+│   ├── network-config.template.yaml  # Template for network configuration
 │   └── storage-class.yaml    # Storage class for Synology CSI
 ├── docker/                   # Docker configurations
 │   ├── docker-compose.yml    # Docker Compose configuration
+│   ├── .env                  # Environment variables with sensitive information
+│   ├── .env.example          # Example environment variables file
 │   ├── Dockerfile.matchbox   # HTTP server for Talos configs
 │   └── Dockerfile.matchbox-tftp # TFTP server for PXE boot
 └── scripts/                  # Utility scripts
@@ -39,33 +41,53 @@ The system uses a simple, secure approach to manage Talos configurations:
 
 ### Network Configuration
 
-All node configurations are defined in a single YAML file (`configs/network-config.yaml`):
+The network configuration uses a template-based approach to protect sensitive information:
+
+1. **Template File**: `configs/network-config.template.yaml` contains the structure with placeholders:
 
 ```yaml
-# Global network settings
-network:
-  gateway: "192.168.86.1"
-  netmask: "255.255.255.0"
-  nameservers:
-    - "192.168.86.2"
-    - "192.168.86.4"
+# Global settings
+global:
+  # Any global settings that apply to all clusters
 
-# Node-specific configurations
-nodes:
-  prodcp1:
-    mac: "50:6b:8d:96:f7:50"
-    ip: "192.168.86.211"
-    storage_ip: "10.44.5.10"
-    hostname: "prodcp1"
-    type: "controlplane"
-
-  prodworker1:
-    mac: "50:6b:8d:ff:7b:7e"
-    ip: "192.168.86.214"
-    storage_ip: "10.44.5.13"
-    hostname: "prodworker1"
-    type: "worker"
+# Cluster configurations
+clusters:
+  prod:
+    network:
+      vip: "${PROD_VIP}"  # VIP for Kubernetes API
+    cluster:
+      name: "${PROD_NAME}"
+      endpoint: "${PROD_ENDPOINT}"
+      dns_domain: "${PROD_DNS_DOMAIN}"
+      pod_subnet: "${PROD_POD_SUBNET}"
+      service_subnet: "${PROD_SERVICE_SUBNET}"
+    nodes:
+      prodcp1:
+        mac: "00:11:22:33:44:55"
+        hostname: "prodcp1"
+        type: "controlplane"
+      prodworker1:
+        mac: "00:11:22:33:44:66"
+        hostname: "prodworker1"
+        type: "worker"
 ```
+
+2. **Environment Variables**: The actual values are stored in the `.env` file:
+
+```
+# Prod Cluster Configuration (sensitive information)
+PROD_VIP=192.168.1.100
+PROD_NAME=cluster.example.com
+PROD_ENDPOINT=https://api.cluster.example.com:6443
+PROD_DNS_DOMAIN=cluster.local
+PROD_POD_SUBNET=10.244.0.0/16
+PROD_SERVICE_SUBNET=10.96.0.0/12
+```
+
+3. **Runtime Processing**: When the container starts, it:
+   - Downloads the template from GitHub
+   - Replaces the placeholders with values from the environment variables
+   - Generates the actual configuration file
 
 ### DHCP Server Configuration
 
@@ -78,40 +100,56 @@ The TFTP server will automatically generate the appropriate PXE boot configurati
 
 ### Environment Variables
 
-The cluster configuration is controlled through environment variables in docker-compose.yml:
+The cluster configuration is controlled through environment variables in the `.env` file:
 
-```yaml
-environment:
-  # Cluster Settings
-  - CLUSTER_NAME=k8s.lan
-  - CLUSTER_ENDPOINT=https://api.k8s.lan:6443
-  - CLUSTER_DNS_DOMAIN=cluster.local
-  - CLUSTER_POD_SUBNET=10.244.0.0/16
-  - CLUSTER_SERVICE_SUBNET=10.96.0.0/12
-  
-  # Installation Options
-  - WIPE_DISK=false  # Set to true to wipe disks during reinstall
-  
-  # Version Control
-  - TALOS_VERSION=latest  # Use 'latest' or specific version like 'v1.5.5'
 ```
+# GitHub Repository
+GITHUB_REPO=https://github.com/yourusername/talos
+
+# Configuration Options
+FORCE_REGENERATE=false  # Set to true to force regeneration of existing configs
+
+# Prod Cluster Configuration (sensitive information)
+PROD_VIP=192.168.1.100
+PROD_NAME=cluster.example.com
+PROD_ENDPOINT=https://api.cluster.example.com:6443
+PROD_DNS_DOMAIN=cluster.local
+PROD_POD_SUBNET=10.244.0.0/16
+PROD_SERVICE_SUBNET=10.96.0.0/12
+
+# Talos Configuration
+TALOS_VERSION=https://pxe.factory.talos.dev/pxe/latest/metal-amd64
+WIPE_DISK=true  # Set to true to wipe disks during reinstall
+
+# Network Configuration
+MATCHBOX_HOST=matchbox.lan
+```
+
+The `.env` file is excluded from git to protect sensitive information. An `.env.example` file is provided as a template.
 
 ### Adding Nodes
 
 To add more nodes to the cluster:
 
-1. Add the node configuration to network-config.yaml:
+1. Add the node configuration to network-config.template.yaml:
    ```yaml
-   nodes:
-     worker3:
-       mac: "50:6b:8d:xx:xx:xx"
-       ip: "192.168.86.216"
-       storage_ip: "10.44.5.15"
-       hostname: "worker3"
-       type: "worker"
+   clusters:
+     prod:
+       nodes:
+         prodworker3:
+           mac: "00:11:22:33:44:77"
+           hostname: "prodworker3"
+           type: "worker"
    ```
 
-2. Restart the services:
+2. Commit and push the changes to GitHub:
+   ```bash
+   git add configs/network-config.template.yaml
+   git commit -m "Add new worker node"
+   git push
+   ```
+
+3. Restart the services:
    ```bash
    cd docker
    docker-compose restart
@@ -127,10 +165,10 @@ The system will automatically:
 The cluster uses a dedicated storage network for Synology CSI:
 
 1. Each node has a storage network interface (eth1) configured via network-config.yaml
-2. Storage IPs are in the 10.44.5.0/24 network:
-   - Control plane nodes: 10.44.5.10-12
-   - Worker nodes: 10.44.5.13+
-   - Synology NAS: 10.44.5.2
+2. Storage IPs are in the 10.10.10.0/24 network:
+   - Control plane nodes: 10.10.10.10-12
+   - Worker nodes: 10.10.10.13+
+   - Synology NAS: 10.10.10.2
 
 The storage class configuration is defined in `configs/storage-class.yaml`:
 ```yaml
@@ -141,7 +179,7 @@ metadata:
 provisioner: csi.synology.com
 parameters:
   fsType: ext4
-  location: "10.44.5.2"  # Synology NAS IP on storage network
+  location: "10.10.10.2"  # Synology NAS IP on storage network
   storage_pool: "volume1"
 ```
 
@@ -243,19 +281,26 @@ talosctl validate -c config.yaml -v
 
 To reinstall nodes with clean disks:
 
-1. Set WIPE_DISK=true in docker-compose.yml:
-   ```yaml
-   environment:
-     - WIPE_DISK=true
+1. Set WIPE_DISK=true in the `.env` file:
+   ```
+   # Talos Configuration
+   TALOS_VERSION=https://pxe.factory.talos.dev/pxe/latest/metal-amd64
+   WIPE_DISK=true  # Set to true to wipe disks during reinstall
    ```
 
-2. Restart the services:
+2. Set FORCE_REGENERATE=true to regenerate all configurations:
+   ```
+   # Configuration Options
+   FORCE_REGENERATE=true
+   ```
+
+3. Restart the services:
    ```bash
    cd docker
-   docker-compose up -d
+   docker-compose restart
    ```
 
-3. After reinstall, set WIPE_DISK back to false to prevent accidental disk wiping.
+4. After reinstall, set WIPE_DISK and FORCE_REGENERATE back to false to prevent accidental disk wiping and unnecessary regeneration.
 
 ## Talos Configuration Storage
 
@@ -331,9 +376,24 @@ The Talos VM management in Terraform uses the same node information:
 
 ## Security
 
-- Node configuration stored in Git (no secrets)
-- Secrets generated by talosctl at runtime
-- Generated configs stored only on HTTP server
-- Each node gets its own configuration with unique secrets
-- All configs validated before deployment
-- PXE boot configurations generated automatically based on MAC addresses
+- **Template-Based Configuration**: 
+  - Network configuration template stored in Git (no secrets)
+  - Sensitive information stored in `.env` file (excluded from Git)
+  - Template processed at runtime to generate actual configuration
+
+- **Multi-Cluster Support**:
+  - Each cluster has its own configuration section
+  - Cluster-specific environment variables with prefix (e.g., PROD_*)
+  - Support for multiple clusters in a single deployment
+
+- **Configuration Protection**:
+  - Existing configurations preserved unless FORCE_REGENERATE=true
+  - Secrets generated by talosctl at runtime
+  - Generated configs stored only on HTTP server
+  - Each node gets its own configuration with unique secrets
+  - All configs validated before deployment
+
+- **Secure Boot Process**:
+  - PXE boot configurations generated automatically based on MAC addresses
+  - Each node receives only its own configuration
+  - Configurations are validated before use
