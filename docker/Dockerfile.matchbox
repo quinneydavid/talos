@@ -64,15 +64,6 @@ RUN echo '#!/bin/bash' > /entrypoint.sh && \
     echo 'chmod +x /usr/local/bin/talosctl' >> /entrypoint.sh && \
     echo 'echo "${TALOS_VERSION}" > /var/lib/matchbox/assets/version.txt' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# Verify required environment variables' >> /entrypoint.sh && \
-    echo 'required_vars="GITHUB_REPO CLUSTER_NAME CLUSTER_ENDPOINT CLUSTER_DNS_DOMAIN CLUSTER_POD_SUBNET CLUSTER_SERVICE_SUBNET CONTROL_PLANE_VIP"' >> /entrypoint.sh && \
-    echo 'for var in $required_vars; do' >> /entrypoint.sh && \
-    echo '  if [ -z "${!var}" ]; then' >> /entrypoint.sh && \
-    echo '    echo "$var environment variable must be set"' >> /entrypoint.sh && \
-    echo '    exit 1' >> /entrypoint.sh && \
-    echo '  fi' >> /entrypoint.sh && \
-    echo 'done' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
     echo '# Download network config from GitHub' >> /entrypoint.sh && \
     echo 'echo "Downloading network config..."' >> /entrypoint.sh && \
     echo 'if ! curl -fSL --retry 3 --retry-delay 3 -o /var/lib/matchbox/network-config.yaml "${GITHUB_REPO}/raw/main/configs/network-config.yaml"; then' >> /entrypoint.sh && \
@@ -86,14 +77,35 @@ RUN echo '#!/bin/bash' > /entrypoint.sh && \
     echo '  exit 1' >> /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
+    echo '# Read cluster configuration from network-config.yaml' >> /entrypoint.sh && \
+    echo 'echo "Reading cluster configuration from network-config.yaml..."' >> /entrypoint.sh && \
+    echo 'CLUSTER_ID=${CLUSTER_ID:-prod}' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Check if the specified cluster exists' >> /entrypoint.sh && \
+    echo 'if ! yq e ".clusters.${CLUSTER_ID}" /var/lib/matchbox/network-config.yaml > /dev/null 2>&1; then' >> /entrypoint.sh && \
+    echo '  echo "Error: Cluster ${CLUSTER_ID} not found in network-config.yaml"' >> /entrypoint.sh && \
+    echo '  echo "Available clusters:"' >> /entrypoint.sh && \
+    echo '  yq e ".clusters | keys | .[]" /var/lib/matchbox/network-config.yaml' >> /entrypoint.sh && \
+    echo '  exit 1' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Verify required environment variables' >> /entrypoint.sh && \
+    echo 'required_vars="GITHUB_REPO"' >> /entrypoint.sh && \
+    echo 'for var in $required_vars; do' >> /entrypoint.sh && \
+    echo '  if [ -z "${!var}" ]; then' >> /entrypoint.sh && \
+    echo '    echo "$var environment variable must be set"' >> /entrypoint.sh && \
+    echo '    exit 1' >> /entrypoint.sh && \
+    echo '  fi' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
     echo '# Generate Talos configurations' >> /entrypoint.sh && \
-    echo 'echo "Generating Talos configurations..."' >> /entrypoint.sh && \
+    echo 'echo "Generating Talos configurations for cluster: ${CLUSTER_ID}..."' >> /entrypoint.sh && \
     echo 'if [ ! -x /scripts/generate-configs.sh ]; then' >> /entrypoint.sh && \
     echo '  echo "Error: generate-configs.sh not found or not executable"' >> /entrypoint.sh && \
     echo '  ls -la /scripts/' >> /entrypoint.sh && \
     echo '  exit 1' >> /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
-    echo 'bash /scripts/generate-configs.sh' >> /entrypoint.sh && \
+    echo 'CLUSTER_ID=${CLUSTER_ID} bash /scripts/generate-configs.sh' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Create ready file for TFTP server' >> /entrypoint.sh && \
     echo 'touch /var/lib/matchbox/assets/.ready' >> /entrypoint.sh && \

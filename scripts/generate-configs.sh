@@ -5,6 +5,43 @@
 
 set -e
 
+# Default cluster name
+CLUSTER_ID=${CLUSTER_ID:-prod}
+
+# Display help information
+show_help() {
+    echo "Talos Configuration Generator"
+    echo ""
+    echo "Usage:"
+    echo "  $0 [options]"
+    echo ""
+    echo "Options:"
+    echo "  --cluster=CLUSTER_ID  Specify which cluster to configure (default: prod)"
+    echo "  --help                Display this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                    # Configure the prod cluster (default)"
+    echo "  $0 --cluster=dev      # Configure the dev cluster"
+    exit 0
+}
+
+# Parse command line arguments
+for arg in "$@"; do
+    case $arg in
+        --cluster=*)
+            CLUSTER_ID="${arg#*=}"
+            shift
+            ;;
+        --help)
+            show_help
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            show_help
+            ;;
+    esac
+done
+
 # Directory setup
 MATCHBOX_ASSETS="/var/lib/matchbox/assets"
 TMP_DIR="/tmp/talos"
@@ -28,11 +65,34 @@ if ! command -v yq > /dev/null 2>&1; then
     exit 1
 fi
 
-# Verify required environment variables
-for var in CLUSTER_NAME CLUSTER_ENDPOINT CLUSTER_DNS_DOMAIN CLUSTER_POD_SUBNET CLUSTER_SERVICE_SUBNET CONTROL_PLANE_VIP; do
-    eval val=\$$var
+# Read configuration from network-config.yaml
+echo "Reading configuration from network-config.yaml for cluster: ${CLUSTER_ID}..."
+if [ ! -f /var/lib/matchbox/network-config.yaml ]; then
+    echo "Error: network-config.yaml not found at /var/lib/matchbox/network-config.yaml"
+    exit 1
+fi
+
+# Check if the specified cluster exists
+if ! yq e ".clusters.${CLUSTER_ID}" /var/lib/matchbox/network-config.yaml > /dev/null 2>&1; then
+    echo "Error: Cluster '${CLUSTER_ID}' not found in network-config.yaml"
+    echo "Available clusters:"
+    yq e '.clusters | keys | .[]' /var/lib/matchbox/network-config.yaml
+    exit 1
+fi
+
+# Get cluster configuration from network-config.yaml
+CLUSTER_NAME=$(yq e ".clusters.${CLUSTER_ID}.cluster.name" /var/lib/matchbox/network-config.yaml)
+CLUSTER_ENDPOINT=$(yq e ".clusters.${CLUSTER_ID}.cluster.endpoint" /var/lib/matchbox/network-config.yaml)
+CLUSTER_DNS_DOMAIN=$(yq e ".clusters.${CLUSTER_ID}.cluster.dns_domain" /var/lib/matchbox/network-config.yaml)
+CLUSTER_POD_SUBNET=$(yq e ".clusters.${CLUSTER_ID}.cluster.pod_subnet" /var/lib/matchbox/network-config.yaml)
+CLUSTER_SERVICE_SUBNET=$(yq e ".clusters.${CLUSTER_ID}.cluster.service_subnet" /var/lib/matchbox/network-config.yaml)
+CONTROL_PLANE_VIP=$(yq e ".clusters.${CLUSTER_ID}.network.vip" /var/lib/matchbox/network-config.yaml)
+
+# Verify required configuration values
+for var_name in "CLUSTER_NAME" "CLUSTER_ENDPOINT" "CLUSTER_DNS_DOMAIN" "CLUSTER_POD_SUBNET" "CLUSTER_SERVICE_SUBNET" "CONTROL_PLANE_VIP"; do
+    eval val=\$$var_name
     if [ -z "$val" ]; then
-        echo "Error: $var environment variable must be set"
+        echo "Error: $var_name not found in network-config.yaml for cluster ${CLUSTER_ID}"
         exit 1
     fi
 done
@@ -40,10 +100,7 @@ done
 # Default to not wiping disks if not specified
 WIPE_DISK=${WIPE_DISK:-false}
 
-# Get VIP from network configuration
-CONTROL_PLANE_VIP=$(yq e '.network.vip' /var/lib/matchbox/network-config.yaml || echo "$CONTROL_PLANE_VIP")
-
-echo "Generating Talos configurations..."
+echo "Generating Talos configurations for cluster: ${CLUSTER_ID}"
 echo "Cluster Name: $CLUSTER_NAME"
 echo "Endpoint: $CLUSTER_ENDPOINT"
 echo "Control Plane VIP: $CONTROL_PLANE_VIP"
@@ -56,11 +113,47 @@ echo "Wipe Disk: $WIPE_DISK"
 echo "Generating base cluster configuration..."
 talosctl gen config --output-dir "$TMP_DIR" "$CLUSTER_NAME" "$CLUSTER_ENDPOINT"
 
-# Process each node
-for node in $(yq e '.nodes | keys | .[]' /var/lib/matchbox/network-config.yaml); do
-    hostname=$(yq e ".nodes.${node}.hostname" /var/lib/matchbox/network-config.yaml)
-    mac=$(yq e ".nodes.${node}.mac" /var/lib/matchbox/network-config.yaml)
-    type=$(yq e ".nodes.${node}.type" /var/lib/matchbox/network-config.yaml)
+# Function to perform DNS lookup
+perform_dns_lookup() {
+    local hostname="$1"
+    local ip=""
+    
+    echo "Performing DNS lookup for ${hostname}..."
+    
+    # Try to resolve hostname using getent
+    ip=$(getent hosts "${hostname}" 2>/dev/null | awk '{print $1}' | head -n 1)
+    
+    if [ -z "$ip" ]; then
+        # Try to resolve using dig if getent fails
+        if command -v dig > /dev/null 2>&1; then
+            ip=$(dig +short "${hostname}" 2>/dev/null | head -n 1)
+        fi
+    fi
+    
+    if [ -z "$ip" ]; then
+        # Try to resolve using nslookup if dig fails
+        if command -v nslookup > /dev/null 2>&1; then
+            ip=$(nslookup "${hostname}" 2>/dev/null | grep -A1 'Name:' | grep 'Address:' | awk '{print $2}' | head -n 1)
+        fi
+    fi
+    
+    if [ -n "$ip" ]; then
+        echo "✅ Resolved ${hostname} to ${ip}"
+    else
+        echo "⚠️ Could not resolve ${hostname} via DNS. Using hostname for discovery."
+    fi
+    
+    echo "$ip"
+}
+
+# Process each node in the specified cluster
+for node in $(yq e ".clusters.${CLUSTER_ID}.nodes | keys | .[]" /var/lib/matchbox/network-config.yaml); do
+    hostname=$(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.hostname" /var/lib/matchbox/network-config.yaml)
+    mac=$(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.mac" /var/lib/matchbox/network-config.yaml)
+    type=$(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.type" /var/lib/matchbox/network-config.yaml)
+    
+    # Perform DNS lookup for the node's hostname
+    node_ip=$(perform_dns_lookup "${hostname}")
     
     if [ "$type" = "controlplane" ]; then
         base_file="$TMP_DIR/controlplane.yaml"
@@ -81,13 +174,6 @@ machine:
       - deviceSelector:
           busPath: "0000:00:04.0"
         dhcp: true
-  discovery:
-    enabled: true
-    registries:
-      kubernetes:
-        disabled: false
-      service:
-        disabled: false
   install:
     disk: /dev/sda
     wipe: ${WIPE_DISK}
@@ -120,13 +206,6 @@ machine:
       - deviceSelector:
           busPath: "0000:00:04.0"
         dhcp: true
-  discovery:
-    enabled: true
-    registries:
-      kubernetes:
-        disabled: false
-      service:
-        disabled: false
   install:
     disk: /dev/sda
     wipe: ${WIPE_DISK}
@@ -144,7 +223,7 @@ cluster:
 EOF
     fi
     
-    output_file="$MATCHBOX_ASSETS/${type}-${hostname}.yaml"
+    output_file="$MATCHBOX_ASSETS/${CLUSTER_ID}-${type}-${hostname}.yaml"
     
     # Preserve version and merge configs
     version=$(yq e '.version' "$base_file")
@@ -158,7 +237,7 @@ done
 
 # Get all control plane hostnames and add them to talosconfig
 echo "Adding control plane endpoints to talosconfig..."
-CONTROL_PLANE_NODES=$(yq e '.nodes[] | select(.type == "controlplane") | .hostname' /var/lib/matchbox/network-config.yaml)
+CONTROL_PLANE_NODES=$(yq e ".clusters.${CLUSTER_ID}.nodes[] | select(.type == \"controlplane\") | .hostname" /var/lib/matchbox/network-config.yaml)
 
 # Create a temporary YAML file with the correct structure
 cat > "$TMP_DIR/endpoints.yaml" << EOF
@@ -190,9 +269,9 @@ EOF
 mv "$TMP_DIR/endpoints.yaml" "$TMP_DIR/talosconfig"
 
 # Copy talosconfig to assets directory before cleanup
-cp "$TMP_DIR/talosconfig" "$MATCHBOX_ASSETS/talosconfig"
+cp "$TMP_DIR/talosconfig" "$MATCHBOX_ASSETS/${CLUSTER_ID}-talosconfig"
 
 # Cleanup
 rm -f "$TMP_DIR/controlplane.yaml" "$TMP_DIR/worker.yaml" "$TMP_DIR/talosconfig" "$TMP_DIR/network.patch.yaml" "$TMP_DIR/ca.txt" "$TMP_DIR/crt.txt" "$TMP_DIR/key.txt"
 
-echo "Configuration generation complete!"
+echo "Configuration generation complete for cluster: ${CLUSTER_ID}!"

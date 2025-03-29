@@ -16,15 +16,13 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - GITHUB_REPO=https://github.com/quinneydavid/talos
-      - CLUSTER_NAME=k8s.lan
-      - CLUSTER_ENDPOINT=https://api.k8s.lan:6443
-      - CLUSTER_DNS_DOMAIN=cluster.local
-      - CLUSTER_POD_SUBNET=10.244.0.0/16
-      - CLUSTER_SERVICE_SUBNET=10.96.0.0/12
-      - WIPE_DISK=true  # Set to false to preserve disks during reinstall
-      - TALOS_VERSION=https://pxe.factory.talos.dev/pxe/c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac/v1.9.0/metal-amd64  # Custom image with iSCSI tools
-      - CONTROL_PLANE_VIP=10.88.8.210
+      # GitHub repo for network-config.yaml (primary config source)
+      - GITHUB_REPO=${GITHUB_REPO:-https://github.com/quinneydavid/talos}
+      # Cluster ID to use (default: prod)
+      - CLUSTER_ID=${CLUSTER_ID:-prod}
+      # Other settings
+      - WIPE_DISK=${WIPE_DISK:-true}
+      - TALOS_VERSION=${TALOS_VERSION:-https://pxe.factory.talos.dev/pxe/c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac/v1.9.0/metal-amd64}
     networks:
       - pxe-network
     volumes:
@@ -42,6 +40,8 @@ services:
       dockerfile: Dockerfile.matchbox-tftp
     ports:
       - "69:69/udp"
+    environment:
+      - MATCHBOX_HOST=${MATCHBOX_HOST:-matchbox.lan}
     networks:
       - pxe-network
     volumes:
