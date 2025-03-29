@@ -24,7 +24,7 @@ services:
       - CLUSTER_SERVICE_SUBNET=10.96.0.0/12
       - WIPE_DISK=true  # Set to false to preserve disks during reinstall
       - TALOS_VERSION=https://pxe.factory.talos.dev/pxe/c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac/v1.9.0/metal-amd64  # Custom image with iSCSI tools
-      - CONTROL_PLANE_VIP=192.168.86.241
+      - CONTROL_PLANE_VIP=10.88.8.210
     networks:
       - pxe-network
     volumes:

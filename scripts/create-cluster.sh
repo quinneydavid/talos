@@ -7,8 +7,21 @@ CLUSTER_ENDPOINT=${CLUSTER_ENDPOINT:-https://api.k8s.lan:6443}
 MAX_RETRIES=60  # 5 minutes with 5-second intervals
 TIMEOUT=300     # 5 minutes total timeout
 
-# Node IPs
-CONTROL_PLANE_1="192.168.86.211"
+# Get VIP from network configuration
+if [ -f "/var/lib/matchbox/network-config.yaml" ]; then
+    VIP=$(yq e '.network.vip' /var/lib/matchbox/network-config.yaml 2>/dev/null || echo "")
+    if [ -n "$VIP" ]; then
+        CONTROL_PLANE_VIP="$VIP"
+    fi
+fi
+
+# Node hostnames for discovery-based access
+CONTROL_PLANE_1_NAME="cp1"
+CONTROL_PLANE_2_NAME="cp2"
+CONTROL_PLANE_3_NAME="cp3"
+WORKER_1_NAME="worker1"
+WORKER_2_NAME="worker2"
+ALL_NODE_NAMES="${CONTROL_PLANE_1_NAME},${CONTROL_PLANE_2_NAME},${CONTROL_PLANE_3_NAME},${WORKER_1_NAME},${WORKER_2_NAME}"
 
 # Function to check if a command succeeds
 wait_for_success() {
@@ -46,7 +59,7 @@ wait_for_success() {
 # Function to check etcd health
 check_etcd_health() {
     local output
-    output=$(talosctl --nodes ${CONTROL_PLANE_1} service etcd 2>&1)
+    output=$(talosctl --nodes-by-hostname ${CONTROL_PLANE_1_NAME} service etcd 2>&1)
     local status=$?
     
     if [ $status -ne 0 ]; then
@@ -134,15 +147,15 @@ EOF
     fi
 
     # Start SSH agent if not running
-    if [ -z "$SSH_AUTH_SOCK" ]; then
+    if [ -z "${SSH_AUTH_SOCK:-}" ]; then
         echo "Starting SSH agent..."
-        eval $(ssh-agent)
+        eval $(ssh-agent) >/dev/null
     fi
 
     # Add SSH key if not already added
-    if ! ssh-add -l | grep -q "GitHub CLI"; then
+    if ! ssh-add -l 2>/dev/null | grep -q "GitHub CLI"; then
         echo "Adding SSH key to agent..."
-        ssh-add ~/.ssh/id_ed25519
+        ssh-add ~/.ssh/id_ed25519 2>/dev/null || true
     fi
 
     return 0
@@ -154,7 +167,7 @@ cleanup() {
     if [ $exit_code -ne 0 ]; then
         echo "Script failed with exit code $exit_code"
         echo "Checking service status..."
-        talosctl --nodes ${CONTROL_PLANE_1} services || true
+        talosctl --nodes-by-hostname ${CONTROL_PLANE_1_NAME} services || true
     fi
     exit $exit_code
 }
@@ -180,7 +193,7 @@ fi
 export TALOSCONFIG=/home/david/vscode/talos/tmp/talosconfig
 
 # Wait for first control plane to be ready
-if ! wait_for_success "talosctl --nodes ${CONTROL_PLANE_1} version" "first control plane node"; then
+if ! wait_for_success "talosctl --nodes-by-hostname ${CONTROL_PLANE_1_NAME} version" "first control plane node"; then
     echo "Failed to connect to first control plane node"
     exit 1
 fi
@@ -189,7 +202,7 @@ fi
 echo "Checking etcd status..."
 if ! check_etcd_health; then
     echo "Etcd is not healthy, attempting bootstrap..."
-    if ! talosctl --nodes ${CONTROL_PLANE_1} bootstrap; then
+    if ! talosctl --nodes-by-hostname ${CONTROL_PLANE_1_NAME} bootstrap; then
         echo "Failed to bootstrap cluster"
         exit 1
     fi
@@ -208,14 +221,14 @@ echo "First control plane node bootstrap complete!"
 
 # Verify cluster health
 echo "Verifying cluster health..."
-if ! wait_for_success "talosctl --nodes ${CONTROL_PLANE_1} health --wait-timeout 30s" "cluster health check"; then
+if ! wait_for_success "talosctl --nodes-by-hostname ${CONTROL_PLANE_1_NAME} health --wait-timeout 30s" "cluster health check"; then
     echo "Cluster health check failed"
     exit 1
 fi
 
 # Generate kubeconfig
 echo "Generating kubeconfig..."
-if ! talosctl --nodes ${CONTROL_PLANE_1} kubeconfig --force; then
+if ! talosctl --nodes-by-hostname ${CONTROL_PLANE_1_NAME} kubeconfig --force; then
     echo "Failed to generate kubeconfig"
     exit 1
 fi
@@ -231,6 +244,20 @@ fi
 echo "Waiting for all nodes to be ready..."
 if ! wait_for_success "kubectl wait --for=condition=ready nodes --all --timeout=300s" "all nodes to be ready"; then
     echo "Not all nodes are ready"
+    exit 1
+fi
+
+# Upgrade nodes with iSCSI support
+echo "Upgrading nodes with iSCSI support..."
+if ! talosctl upgrade --image factory.talos.dev/installer/c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac:v1.9.0 --nodes-by-hostname ${ALL_NODE_NAMES}; then
+    echo "Failed to upgrade nodes"
+    exit 1
+fi
+
+# Wait for nodes to be ready after upgrade
+echo "Waiting for nodes to be ready after upgrade..."
+if ! wait_for_success "kubectl wait --for=condition=ready nodes --all --timeout=300s" "all nodes to be ready after upgrade"; then
+    echo "Not all nodes are ready after upgrade"
     exit 1
 fi
 

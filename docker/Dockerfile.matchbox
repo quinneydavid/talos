@@ -44,15 +44,21 @@ RUN echo '#!/bin/bash' > /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Download Talos assets from custom PXE URL' >> /entrypoint.sh && \
     echo 'echo "Downloading kernel..."' >> /entrypoint.sh && \
-    echo 'SCHEMATIC_ID=$(echo "${TALOS_VERSION}" | sed -n "s|.*/pxe/\([^/]*\)/.*|\1|p")' >> /entrypoint.sh && \
-    echo 'TALOS_VER=$(echo "${TALOS_VERSION}" | sed -n "s|.*/\(v[^/]*\)/.*|\1|p")' >> /entrypoint.sh && \
-    echo 'KERNEL_URL="https://pxe.factory.talos.dev/image/${SCHEMATIC_ID}/${TALOS_VER}/kernel-amd64"' >> /entrypoint.sh && \
-    echo 'echo "Kernel URL: ${KERNEL_URL}"' >> /entrypoint.sh && \
-    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/vmlinuz "${KERNEL_URL}"' >> /entrypoint.sh && \
-    echo 'echo "Downloading initramfs.xz..."' >> /entrypoint.sh && \
-    echo 'INITRAMFS_URL="https://pxe.factory.talos.dev/image/${SCHEMATIC_ID}/${TALOS_VER}/initramfs-amd64.xz"' >> /entrypoint.sh && \
-    echo 'echo "Initramfs URL: ${INITRAMFS_URL}"' >> /entrypoint.sh && \
-    echo 'curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/initramfs.xz "${INITRAMFS_URL}"' >> /entrypoint.sh && \
+    echo 'if [[ "${TALOS_VERSION}" == *"pxe.factory.talos.dev"* ]]; then' >> /entrypoint.sh && \
+    echo '  SCHEMATIC_ID=$(echo "${TALOS_VERSION}" | sed -n "s|.*/pxe/\([^/]*\)/.*|\1|p")' >> /entrypoint.sh && \
+    echo '  TALOS_VER=$(echo "${TALOS_VERSION}" | sed -n "s|.*/pxe/[^/]*/\([^/]*\)/.*|\1|p")' >> /entrypoint.sh && \
+    echo '  echo "Using factory image: $SCHEMATIC_ID version: $TALOS_VER"' >> /entrypoint.sh && \
+    echo '  KERNEL_URL="https://pxe.factory.talos.dev/image/${SCHEMATIC_ID}/${TALOS_VER}/kernel-amd64"' >> /entrypoint.sh && \
+    echo '  echo "Kernel URL: ${KERNEL_URL}"' >> /entrypoint.sh && \
+    echo '  curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/vmlinuz "${KERNEL_URL}"' >> /entrypoint.sh && \
+    echo '  echo "Downloading initramfs.xz..."' >> /entrypoint.sh && \
+    echo '  INITRAMFS_URL="https://pxe.factory.talos.dev/image/${SCHEMATIC_ID}/${TALOS_VER}/initramfs-amd64.xz"' >> /entrypoint.sh && \
+    echo '  echo "Initramfs URL: ${INITRAMFS_URL}"' >> /entrypoint.sh && \
+    echo '  curl -fSL --progress-bar --retry 3 --retry-delay 3 -H "Accept: application/octet-stream" -o /var/lib/matchbox/assets/initramfs.xz "${INITRAMFS_URL}"' >> /entrypoint.sh && \
+    echo 'else' >> /entrypoint.sh && \
+    echo '  echo "Error: Unsupported TALOS_VERSION format"' >> /entrypoint.sh && \
+    echo '  exit 1' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
     echo 'echo "Downloading talosctl..."' >> /entrypoint.sh && \
     echo 'wget -q --show-progress --progress=bar:force:noscroll https://github.com/siderolabs/talos/releases/download/v1.9.0/talosctl-linux-amd64 -O /usr/local/bin/talosctl' >> /entrypoint.sh && \
     echo 'chmod +x /usr/local/bin/talosctl' >> /entrypoint.sh && \

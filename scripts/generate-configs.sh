@@ -40,10 +40,8 @@ done
 # Default to not wiping disks if not specified
 WIPE_DISK=${WIPE_DISK:-false}
 
-# Get network settings
-GATEWAY=$(yq e '.network.gateway' /var/lib/matchbox/network-config.yaml)
-NAMESERVER1=$(yq e '.network.nameservers[0]' /var/lib/matchbox/network-config.yaml)
-NAMESERVER2=$(yq e '.network.nameservers[1]' /var/lib/matchbox/network-config.yaml)
+# Get VIP from network configuration
+CONTROL_PLANE_VIP=$(yq e '.network.vip' /var/lib/matchbox/network-config.yaml || echo "$CONTROL_PLANE_VIP")
 
 echo "Generating Talos configurations..."
 echo "Cluster Name: $CLUSTER_NAME"
@@ -62,8 +60,6 @@ talosctl gen config --output-dir "$TMP_DIR" "$CLUSTER_NAME" "$CLUSTER_ENDPOINT"
 for node in $(yq e '.nodes | keys | .[]' /var/lib/matchbox/network-config.yaml); do
     hostname=$(yq e ".nodes.${node}.hostname" /var/lib/matchbox/network-config.yaml)
     mac=$(yq e ".nodes.${node}.mac" /var/lib/matchbox/network-config.yaml)
-    ip=$(yq e ".nodes.${node}.ip" /var/lib/matchbox/network-config.yaml)
-    storage_ip=$(yq e ".nodes.${node}.storage_ip" /var/lib/matchbox/network-config.yaml)
     type=$(yq e ".nodes.${node}.type" /var/lib/matchbox/network-config.yaml)
     
     if [ "$type" = "controlplane" ]; then
@@ -75,26 +71,23 @@ machine:
   type: controlplane
   network:
     hostname: "${hostname}"
-    nameservers:
-      - ${NAMESERVER1}
-      - ${NAMESERVER2}
     interfaces:
       - deviceSelector:
           busPath: "0000:00:03.0"
           hardwareAddr: "${mac}"
-        dhcp: false
-        addresses:
-          - "${ip}/24"
-        routes:
-          - network: 0.0.0.0/0
-            gateway: ${GATEWAY}
+        dhcp: true
         vip:
           ip: ${CONTROL_PLANE_VIP}
       - deviceSelector:
           busPath: "0000:00:04.0"
-        dhcp: false
-        addresses:
-          - "${storage_ip}/24"
+        dhcp: true
+  discovery:
+    enabled: true
+    registries:
+      kubernetes:
+        disabled: false
+      service:
+        disabled: false
   install:
     disk: /dev/sda
     wipe: ${WIPE_DISK}
@@ -119,24 +112,21 @@ machine:
   type: worker
   network:
     hostname: "${hostname}"
-    nameservers:
-      - ${NAMESERVER1}
-      - ${NAMESERVER2}
     interfaces:
       - deviceSelector:
           busPath: "0000:00:03.0"
           hardwareAddr: "${mac}"
-        dhcp: false
-        addresses:
-          - "${ip}/24"
-        routes:
-          - network: 0.0.0.0/0
-            gateway: ${GATEWAY}
+        dhcp: true
       - deviceSelector:
           busPath: "0000:00:04.0"
-        dhcp: false
-        addresses:
-          - "${storage_ip}/24"
+        dhcp: true
+  discovery:
+    enabled: true
+    registries:
+      kubernetes:
+        disabled: false
+      service:
+        disabled: false
   install:
     disk: /dev/sda
     wipe: ${WIPE_DISK}
@@ -166,9 +156,9 @@ EOF
     validate_config "$output_file" "$type"
 done
 
-# Get all control plane IPs and add them to talosconfig
+# Get all control plane hostnames and add them to talosconfig
 echo "Adding control plane endpoints to talosconfig..."
-CONTROL_PLANE_IPS=$(yq e '.nodes[] | select(.type == "controlplane") | .ip' /var/lib/matchbox/network-config.yaml)
+CONTROL_PLANE_NODES=$(yq e '.nodes[] | select(.type == "controlplane") | .hostname' /var/lib/matchbox/network-config.yaml)
 
 # Create a temporary YAML file with the correct structure
 cat > "$TMP_DIR/endpoints.yaml" << EOF
@@ -176,12 +166,14 @@ context: ${CLUSTER_NAME}
 contexts:
   ${CLUSTER_NAME}:
     endpoints:
+      - ${CONTROL_PLANE_VIP}
 EOF
 
-# Add each IP to the endpoints array
-while IFS= read -r ip; do
-    echo "      - $ip" >> "$TMP_DIR/endpoints.yaml"
-done <<< "$CONTROL_PLANE_IPS"
+# Add each hostname as a discovery endpoint
+echo "    discoveryEndpoints:" >> "$TMP_DIR/endpoints.yaml"
+while IFS= read -r hostname; do
+    echo "      - ${hostname}" >> "$TMP_DIR/endpoints.yaml"
+done <<< "$CONTROL_PLANE_NODES"
 
 # Add the remaining fields from the original talosconfig
 yq e '.contexts[].ca' "$TMP_DIR/talosconfig" > "$TMP_DIR/ca.txt"

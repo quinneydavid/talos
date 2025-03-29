@@ -49,7 +49,7 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'DEFAULT talos' >> /entrypoint.sh && \
     echo 'LABEL talos' >> /entrypoint.sh && \
     echo '    KERNEL vmlinuz' >> /entrypoint.sh && \
-    echo '    APPEND initrd=initramfs.xz init_on_alloc=1 init_on_free=1 slab_nomerge pti=on console=tty0 console=ttyS0 printk.devkmsg=on talos.platform=metal talos.config=http://matchbox.lan:8080/assets/${config_path}' >> /entrypoint.sh && \
+    echo '    APPEND initrd=initramfs.xz talos.platform=metal console=tty0 init_on_alloc=1 slab_nomerge pti=on consoleblank=0 nvme_core.io_timeout=4294967295 printk.devkmsg=on ima_template=ima-ng ima_appraise=fix ima_hash=sha512 talos.config=http://matchbox.lan:8080/assets/${config_path}' >> /entrypoint.sh && \
     echo 'EOF' >> /entrypoint.sh && \
     echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
@@ -58,7 +58,7 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo 'DEFAULT talos' >> /entrypoint.sh && \
     echo 'LABEL talos' >> /entrypoint.sh && \
     echo '    KERNEL vmlinuz' >> /entrypoint.sh && \
-    echo '    APPEND initrd=initramfs.xz init_on_alloc=1 init_on_free=1 slab_nomerge pti=on console=tty0 console=ttyS0 printk.devkmsg=on talos.platform=metal' >> /entrypoint.sh && \
+    echo '    APPEND initrd=initramfs.xz talos.platform=metal console=tty0 init_on_alloc=1 slab_nomerge pti=on consoleblank=0 nvme_core.io_timeout=4294967295 printk.devkmsg=on ima_template=ima-ng ima_appraise=fix ima_hash=sha512' >> /entrypoint.sh && \
     echo 'EOF' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Starting dnsmasq..."' >> /entrypoint.sh && \
