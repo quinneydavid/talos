@@ -1,6 +1,0 @@
-clients:
-  - host: 10.44.5.2
-    port: 5000
-    https: false
-    username: synology-csi
-    # password should be provided separately when creating secret

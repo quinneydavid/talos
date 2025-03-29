@@ -1,15 +1,39 @@
 #!/bin/bash
+#
+# Flux Bootstrap Script for Talos Kubernetes Cluster
+#
+# This script bootstraps Flux onto a Talos Kubernetes cluster by:
+# - Installing or updating the Flux CLI
+# - Verifying prerequisites (SOPS age key)
+# - Bootstrapping Flux onto the cluster with GitHub integration
+# - Creating the necessary Flux Kustomizations for different components
+#
+# Prerequisites:
+# - kubectl with access to the cluster
+# - GitHub account and personal access token
+# - SOPS age key for secret management
+#
+# Usage:
+#   ./bootstrap-flux.sh
+
+set -euo pipefail
+
+# Get base path
+BASE_PATH=${BASE_PATH:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"}
+TALOS_PATH="${BASE_PATH}/talos"
 
 # Install or update Flux CLI
 echo "Installing/updating Flux CLI..."
 curl -s https://fluxcd.io/install.sh | sudo bash
 
 # Check if age key file exists
-if [ ! -f "$HOME/.config/sops/age/keys.txt" ]; then
-    echo "Error: SOPS age key not found at $HOME/.config/sops/age/keys.txt"
+AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
+if [ ! -f "$AGE_KEY_FILE" ]; then
+    echo "❌ Error: SOPS age key not found at $AGE_KEY_FILE"
     echo "Please ensure your age private key is stored there"
     exit 1
 fi
+echo "✅ Found SOPS age key at $AGE_KEY_FILE"
 
 # Uninstall any existing Flux installation
 echo "Cleaning up any existing Flux installation..."
