@@ -16,24 +16,25 @@ The Docker Compose setup uses environment variables to configure the Talos clust
 2. Edit the `.env` file to set your specific values:
    ```bash
    # Update with your actual values
-   CLUSTER_NAME=prod.quinney.cloud
-   CLUSTER_ENDPOINT=https://api.prod.quinney.cloud:6443
+   PROD_NAME=cluster.example.com
+   PROD_ENDPOINT=https://api.cluster.example.com:6443
    # ... other variables
    ```
 
 ### Available Environment Variables
 
-| Variable | Description | Default Value |
+| Variable | Description | Example Value |
 |----------|-------------|---------------|
 | `GITHUB_REPO` | GitHub repository for network config | https://github.com/yourusername/talos |
-| `CLUSTER_NAME` | Kubernetes cluster name | your-cluster-domain |
-| `CLUSTER_ENDPOINT` | Kubernetes API endpoint | https://api.your-cluster-domain:6443 |
-| `CLUSTER_DNS_DOMAIN` | Kubernetes DNS domain | cluster.local |
-| `CLUSTER_POD_SUBNET` | Kubernetes pod subnet | 10.244.0.0/16 |
-| `CLUSTER_SERVICE_SUBNET` | Kubernetes service subnet | 10.96.0.0/12 |
-| `TALOS_VERSION` | Talos version to use | https://pxe.factory.talos.dev/pxe/... |
+| `FORCE_REGENERATE` | Whether to regenerate existing configs | false |
+| `PROD_VIP` | VIP for the Kubernetes API | 192.168.1.100 |
+| `PROD_NAME` | Kubernetes cluster name | cluster.example.com |
+| `PROD_ENDPOINT` | Kubernetes API endpoint | https://api.cluster.example.com:6443 |
+| `PROD_DNS_DOMAIN` | Kubernetes DNS domain | cluster.local |
+| `PROD_POD_SUBNET` | Kubernetes pod subnet | 10.244.0.0/16 |
+| `PROD_SERVICE_SUBNET` | Kubernetes service subnet | 10.96.0.0/12 |
+| `TALOS_VERSION` | Talos version to use | https://pxe.factory.talos.dev/pxe/latest/metal-amd64 |
 | `WIPE_DISK` | Whether to wipe disks during install | true |
-| `CONTROL_PLANE_VIP` | VIP for the control plane | 10.88.8.210 |
 | `MATCHBOX_HOST` | Hostname for the matchbox server | matchbox.lan |
 
 ## DNS Configuration
@@ -41,9 +42,9 @@ The Docker Compose setup uses environment variables to configure the Talos clust
 Before starting the Docker Compose setup, ensure your DNS is properly configured:
 
 1. Set up DNS entries for:
-   - `api.your-cluster-domain` → `CONTROL_PLANE_VIP`
+   - `api.cluster.example.com` → `PROD_VIP`
    - `matchbox.lan` → IP of the host running the matchbox container
-   - Optionally, a wildcard entry `*.your-cluster-domain` → `CONTROL_PLANE_VIP`
+   - Optionally, a wildcard entry `*.cluster.example.com` → `PROD_VIP`
 
 ## Starting the Services
 
