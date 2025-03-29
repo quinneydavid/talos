@@ -1,0 +1,60 @@
+# Global settings
+global:
+  # Any global settings that apply to all clusters
+
+# Cluster configurations
+clusters:
+  prod:
+    network:
+      vip: "${PROD_VIP}"  # VIP for Kubernetes API
+    cluster:
+      name: "${PROD_NAME}"
+      endpoint: "${PROD_ENDPOINT}"
+      dns_domain: "${PROD_DNS_DOMAIN}"
+      pod_subnet: "${PROD_POD_SUBNET}"
+      service_subnet: "${PROD_SERVICE_SUBNET}"
+    nodes:
+      prodcp1:
+        mac: "50:6b:8d:96:f7:50"
+        hostname: "prodcp1"
+        type: "controlplane"
+      prodcp2:
+        mac: "50:6b:8d:e3:2e:e7"
+        hostname: "prodcp2"
+        type: "controlplane"
+      prodcp3:
+        mac: "50:6b:8d:be:b5:e5"
+        hostname: "prodcp3"
+        type: "controlplane"
+      prodworker1:
+        mac: "50:6b:8d:ff:7b:7e"
+        hostname: "prodworker1"
+        type: "worker"
+      prodworker2:
+        mac: "50:6b:8d:91:08:d3"
+        hostname: "prodworker2"
+        type: "worker"
+
+  # Example of a second cluster (uncomment and configure as needed)
+  # dev:
+  #   network:
+  #     vip: "${DEV_VIP}"  # VIP for Kubernetes API
+  #   cluster:
+  #     name: "${DEV_NAME}"
+  #     endpoint: "${DEV_ENDPOINT}"
+  #     dns_domain: "${DEV_DNS_DOMAIN}"
+  #     pod_subnet: "${DEV_POD_SUBNET}"
+  #     service_subnet: "${DEV_SERVICE_SUBNET}"
+  #   nodes:
+  #     devcp1:
+  #       mac: "aa:bb:cc:dd:ee:ff"
+  #       hostname: "devcp1"
+  #       type: "controlplane"
+  #     devcp2:
+  #       mac: "aa:bb:cc:dd:ee:gg"
+  #       hostname: "devcp2"
+  #       type: "controlplane"
+  #     devworker1:
+  #       mac: "aa:bb:cc:dd:ee:hh"
+  #       hostname: "devworker1"
+  #       type: "worker"

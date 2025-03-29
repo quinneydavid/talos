@@ -1,7 +1,7 @@
 FROM alpine:latest
 
-# Install required packages
-RUN apk add --no-cache curl jq ca-certificates iputils openssl wget bash
+# Install required packages (including gettext for envsubst)
+RUN apk add --no-cache curl jq ca-certificates iputils openssl wget bash gettext
 
 # Install yq from binary since apk package is not available
 RUN wget https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64 -O /usr/bin/yq && \
@@ -64,28 +64,20 @@ RUN echo '#!/bin/bash' > /entrypoint.sh && \
     echo 'chmod +x /usr/local/bin/talosctl' >> /entrypoint.sh && \
     echo 'echo "${TALOS_VERSION}" > /var/lib/matchbox/assets/version.txt' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# Download network config from GitHub' >> /entrypoint.sh && \
-    echo 'echo "Downloading network config..."' >> /entrypoint.sh && \
-    echo 'if ! curl -fSL --retry 3 --retry-delay 3 -o /var/lib/matchbox/network-config.yaml "${GITHUB_REPO}/raw/main/configs/network-config.yaml"; then' >> /entrypoint.sh && \
-    echo '  echo "Error: Failed to download network config from GitHub"' >> /entrypoint.sh && \
+    echo '# Download network config template from GitHub' >> /entrypoint.sh && \
+    echo 'echo "Downloading network config template..."' >> /entrypoint.sh && \
+    echo 'if ! curl -fSL --retry 3 --retry-delay 3 -o /var/lib/matchbox/network-config.template.yaml "${GITHUB_REPO}/raw/main/configs/network-config.template.yaml"; then' >> /entrypoint.sh && \
+    echo '  echo "Error: Failed to download network config template from GitHub"' >> /entrypoint.sh && \
     echo '  exit 1' >> /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Process template and replace variables' >> /entrypoint.sh && \
+    echo 'echo "Processing network config template..."' >> /entrypoint.sh && \
+    echo 'envsubst < /var/lib/matchbox/network-config.template.yaml > /var/lib/matchbox/network-config.yaml' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Verify network config exists' >> /entrypoint.sh && \
     echo 'if [ ! -f /var/lib/matchbox/network-config.yaml ]; then' >> /entrypoint.sh && \
     echo '  echo "Error: network-config.yaml not found"' >> /entrypoint.sh && \
-    echo '  exit 1' >> /entrypoint.sh && \
-    echo 'fi' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo '# Read cluster configuration from network-config.yaml' >> /entrypoint.sh && \
-    echo 'echo "Reading cluster configuration from network-config.yaml..."' >> /entrypoint.sh && \
-    echo 'CLUSTER_ID=${CLUSTER_ID:-prod}' >> /entrypoint.sh && \
-    echo '' >> /entrypoint.sh && \
-    echo '# Check if the specified cluster exists' >> /entrypoint.sh && \
-    echo 'if ! yq e ".clusters.${CLUSTER_ID}" /var/lib/matchbox/network-config.yaml > /dev/null 2>&1; then' >> /entrypoint.sh && \
-    echo '  echo "Error: Cluster ${CLUSTER_ID} not found in network-config.yaml"' >> /entrypoint.sh && \
-    echo '  echo "Available clusters:"' >> /entrypoint.sh && \
-    echo '  yq e ".clusters | keys | .[]" /var/lib/matchbox/network-config.yaml' >> /entrypoint.sh && \
     echo '  exit 1' >> /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
@@ -98,14 +90,34 @@ RUN echo '#!/bin/bash' > /entrypoint.sh && \
     echo '  fi' >> /entrypoint.sh && \
     echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
-    echo '# Generate Talos configurations' >> /entrypoint.sh && \
-    echo 'echo "Generating Talos configurations for cluster: ${CLUSTER_ID}..."' >> /entrypoint.sh && \
-    echo 'if [ ! -x /scripts/generate-configs.sh ]; then' >> /entrypoint.sh && \
-    echo '  echo "Error: generate-configs.sh not found or not executable"' >> /entrypoint.sh && \
-    echo '  ls -la /scripts/' >> /entrypoint.sh && \
+    echo '# Get all cluster IDs from network-config.yaml' >> /entrypoint.sh && \
+    echo 'echo "Reading cluster configurations from network-config.yaml..."' >> /entrypoint.sh && \
+    echo 'CLUSTER_IDS=$(yq e ".clusters | keys | .[]" /var/lib/matchbox/network-config.yaml)' >> /entrypoint.sh && \
+    echo 'if [ -z "$CLUSTER_IDS" ]; then' >> /entrypoint.sh && \
+    echo '  echo "Error: No clusters found in network-config.yaml"' >> /entrypoint.sh && \
     echo '  exit 1' >> /entrypoint.sh && \
     echo 'fi' >> /entrypoint.sh && \
-    echo 'CLUSTER_ID=${CLUSTER_ID} bash /scripts/generate-configs.sh' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Process each cluster' >> /entrypoint.sh && \
+    echo 'FORCE_REGENERATE=${FORCE_REGENERATE:-false}' >> /entrypoint.sh && \
+    echo 'for CLUSTER_ID in $CLUSTER_IDS; do' >> /entrypoint.sh && \
+    echo '  echo "Processing cluster: ${CLUSTER_ID}"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '  # Check if talosconfig already exists for this cluster' >> /entrypoint.sh && \
+    echo '  if [ -f "/var/lib/matchbox/assets/${CLUSTER_ID}-talosconfig" ] && [ "${FORCE_REGENERATE}" != "true" ]; then' >> /entrypoint.sh && \
+    echo '    echo "Configuration for cluster ${CLUSTER_ID} already exists. Skipping generation."' >> /entrypoint.sh && \
+    echo '    continue' >> /entrypoint.sh && \
+    echo '  fi' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '  # Generate Talos configurations for this cluster' >> /entrypoint.sh && \
+    echo '  echo "Generating Talos configurations for cluster: ${CLUSTER_ID}..."' >> /entrypoint.sh && \
+    echo '  if [ ! -x /scripts/generate-configs.sh ]; then' >> /entrypoint.sh && \
+    echo '    echo "Error: generate-configs.sh not found or not executable"' >> /entrypoint.sh && \
+    echo '    ls -la /scripts/' >> /entrypoint.sh && \
+    echo '    exit 1' >> /entrypoint.sh && \
+    echo '  fi' >> /entrypoint.sh && \
+    echo '  CLUSTER_ID=${CLUSTER_ID} bash /scripts/generate-configs.sh' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '# Create ready file for TFTP server' >> /entrypoint.sh && \
     echo 'touch /var/lib/matchbox/assets/.ready' >> /entrypoint.sh && \

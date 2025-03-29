@@ -1,5 +1,8 @@
 # Sensitive information
 configs/SENSITIVE-README.md
+configs/network-config.yaml
+.env
+docker/.env
 
 # Generated files
 tmp/

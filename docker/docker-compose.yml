@@ -18,8 +18,29 @@ services:
     environment:
       # GitHub repo for network-config.yaml (primary config source)
       - GITHUB_REPO=${GITHUB_REPO:-https://github.com/quinneydavid/talos}
+      
       # Cluster ID to use (default: prod)
       - CLUSTER_ID=${CLUSTER_ID:-prod}
+      
+      # Force regeneration of configs (default: false)
+      - FORCE_REGENERATE=${FORCE_REGENERATE:-false}
+      
+      # Prod cluster sensitive information
+      - PROD_VIP=${PROD_VIP}
+      - PROD_NAME=${PROD_NAME}
+      - PROD_ENDPOINT=${PROD_ENDPOINT}
+      - PROD_DNS_DOMAIN=${PROD_DNS_DOMAIN}
+      - PROD_POD_SUBNET=${PROD_POD_SUBNET}
+      - PROD_SERVICE_SUBNET=${PROD_SERVICE_SUBNET}
+      
+      # Dev cluster sensitive information (uncomment when needed)
+      # - DEV_VIP=${DEV_VIP}
+      # - DEV_NAME=${DEV_NAME}
+      # - DEV_ENDPOINT=${DEV_ENDPOINT}
+      # - DEV_DNS_DOMAIN=${DEV_DNS_DOMAIN}
+      # - DEV_POD_SUBNET=${DEV_POD_SUBNET}
+      # - DEV_SERVICE_SUBNET=${DEV_SERVICE_SUBNET}
+      
       # Other settings
       - WIPE_DISK=${WIPE_DISK:-true}
       - TALOS_VERSION=${TALOS_VERSION:-https://pxe.factory.talos.dev/pxe/c9078f9419961640c712a8bf2bb9174933dfcf1da383fd8ea2b7dc21493f8bac/v1.9.0/metal-amd64}
