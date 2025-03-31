@@ -104,9 +104,24 @@ RUN echo '#!/bin/bash' > /entrypoint.sh && \
     echo '  echo "Processing cluster: ${CLUSTER_ID}"' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '  # Check if talosconfig already exists for this cluster' >> /entrypoint.sh && \
-    echo '  if [ -f "/var/lib/matchbox/assets/${CLUSTER_ID}-talosconfig" ] && [ "${FORCE_REGENERATE}" != "true" ]; then' >> /entrypoint.sh && \
-    echo '    echo "Configuration for cluster ${CLUSTER_ID} already exists. Skipping generation."' >> /entrypoint.sh && \
-    echo '    continue' >> /entrypoint.sh && \
+    echo '  if [ -f "/var/lib/matchbox/assets/${CLUSTER_ID}-talosconfig" ]; then' >> /entrypoint.sh && \
+    echo '    if [ "${FORCE_REGENERATE}" = "true" ]; then' >> /entrypoint.sh && \
+    echo '      # Create backup directory with timestamp' >> /entrypoint.sh && \
+    echo '      TIMESTAMP=$(date +"%Y%m%d_%H%M%S")' >> /entrypoint.sh && \
+    echo '      BACKUP_DIR="/var/lib/matchbox/backups/${TIMESTAMP}/${CLUSTER_ID}"' >> /entrypoint.sh && \
+    echo '      mkdir -p "${BACKUP_DIR}"' >> /entrypoint.sh && \
+    echo '      ' >> /entrypoint.sh && \
+    echo '      echo "Backing up existing configurations for cluster ${CLUSTER_ID} to ${BACKUP_DIR}..."' >> /entrypoint.sh && \
+    echo '      ' >> /entrypoint.sh && \
+    echo '      # Copy all cluster-related files to backup directory' >> /entrypoint.sh && \
+    echo '      cp "/var/lib/matchbox/assets/${CLUSTER_ID}-talosconfig" "${BACKUP_DIR}/"' >> /entrypoint.sh && \
+    echo '      cp "/var/lib/matchbox/assets/${CLUSTER_ID}-"*.yaml "${BACKUP_DIR}/" 2>/dev/null || true' >> /entrypoint.sh && \
+    echo '      ' >> /entrypoint.sh && \
+    echo '      echo "✅ Backup complete. Proceeding with regeneration."' >> /entrypoint.sh && \
+    echo '    else' >> /entrypoint.sh && \
+    echo '      echo "Configuration for cluster ${CLUSTER_ID} already exists. Skipping generation."' >> /entrypoint.sh && \
+    echo '      continue' >> /entrypoint.sh && \
+    echo '    fi' >> /entrypoint.sh && \
     echo '  fi' >> /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo '  # Generate Talos configurations for this cluster' >> /entrypoint.sh && \

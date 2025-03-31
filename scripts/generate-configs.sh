@@ -87,9 +87,17 @@ CLUSTER_DNS_DOMAIN=$(yq e ".clusters.${CLUSTER_ID}.cluster.dns_domain" /var/lib/
 CLUSTER_POD_SUBNET=$(yq e ".clusters.${CLUSTER_ID}.cluster.pod_subnet" /var/lib/matchbox/network-config.yaml)
 CLUSTER_SERVICE_SUBNET=$(yq e ".clusters.${CLUSTER_ID}.cluster.service_subnet" /var/lib/matchbox/network-config.yaml)
 CONTROL_PLANE_VIP=$(yq e ".clusters.${CLUSTER_ID}.network.vip" /var/lib/matchbox/network-config.yaml)
+DNS_SUFFIX=$(yq e ".clusters.${CLUSTER_ID}.network.dns_suffix" /var/lib/matchbox/network-config.yaml 2>/dev/null || echo ".lan")
+
+# Default to .lan if DNS suffix is not found
+if [ -z "$DNS_SUFFIX" ] || [ "$DNS_SUFFIX" = "null" ]; then
+    DNS_SUFFIX=".lan"
+fi
+
+echo "DNS Suffix: $DNS_SUFFIX"
 
 # Verify required configuration values
-for var_name in "CLUSTER_NAME" "CLUSTER_ENDPOINT" "CLUSTER_DNS_DOMAIN" "CLUSTER_POD_SUBNET" "CLUSTER_SERVICE_SUBNET" "CONTROL_PLANE_VIP"; do
+for var_name in "CLUSTER_NAME" "CLUSTER_ENDPOINT" "CLUSTER_DNS_DOMAIN" "CLUSTER_POD_SUBNET" "CLUSTER_SERVICE_SUBNET" "CONTROL_PLANE_VIP" "DNS_SUFFIX"; do
     eval val=\$$var_name
     if [ -z "$val" ]; then
         echo "Error: $var_name not found in network-config.yaml for cluster ${CLUSTER_ID}"
@@ -118,29 +126,43 @@ perform_dns_lookup() {
     local hostname="$1"
     local ip=""
     
-    echo "Performing DNS lookup for ${hostname}..."
+    # Add DNS suffix if not already present
+    if [[ ! "$hostname" == *"$DNS_SUFFIX" ]]; then
+        local hostname_with_suffix="${hostname}${DNS_SUFFIX}"
+    else
+        local hostname_with_suffix="${hostname}"
+    fi
+    
+    echo "Performing DNS lookup for ${hostname_with_suffix}..."
     
     # Try to resolve hostname using getent
-    ip=$(getent hosts "${hostname}" 2>/dev/null | awk '{print $1}' | head -n 1)
+    ip=$(getent hosts "${hostname_with_suffix}" 2>/dev/null | awk '{print $1}' | head -n 1)
     
     if [ -z "$ip" ]; then
         # Try to resolve using dig if getent fails
         if command -v dig > /dev/null 2>&1; then
-            ip=$(dig +short "${hostname}" 2>/dev/null | head -n 1)
+            ip=$(dig +short "${hostname_with_suffix}" 2>/dev/null | head -n 1)
         fi
     fi
     
     if [ -z "$ip" ]; then
         # Try to resolve using nslookup if dig fails
         if command -v nslookup > /dev/null 2>&1; then
-            ip=$(nslookup "${hostname}" 2>/dev/null | grep -A1 'Name:' | grep 'Address:' | awk '{print $2}' | head -n 1)
+            ip=$(nslookup "${hostname_with_suffix}" 2>/dev/null | grep -A1 'Name:' | grep 'Address:' | awk '{print $2}' | head -n 1)
         fi
     fi
     
     if [ -n "$ip" ]; then
-        echo "✅ Resolved ${hostname} to ${ip}"
+        echo "✅ Resolved ${hostname_with_suffix} to ${ip}"
     else
-        echo "⚠️ Could not resolve ${hostname} via DNS. Using hostname for discovery."
+        # Try without suffix as fallback
+        ip=$(getent hosts "${hostname}" 2>/dev/null | awk '{print $1}' | head -n 1)
+        
+        if [ -n "$ip" ]; then
+            echo "✅ Resolved ${hostname} to ${ip} (without suffix)"
+        else
+            echo "⚠️ Could not resolve ${hostname_with_suffix} or ${hostname} via DNS. Using hostname for discovery."
+        fi
     fi
     
     echo "$ip"
@@ -163,7 +185,7 @@ for node in $(yq e ".clusters.${CLUSTER_ID}.nodes | keys | .[]" /var/lib/matchbo
 machine:
   type: controlplane
   network:
-    hostname: "${hostname}"
+    hostname: "${hostname}${DNS_SUFFIX}"
     interfaces:
       - deviceSelector:
           busPath: "0000:00:03.0"
@@ -173,6 +195,9 @@ machine:
           ip: ${CONTROL_PLANE_VIP}
       - deviceSelector:
           busPath: "0000:00:04.0"
+        dhcp: true
+      - deviceSelector:
+          busPath: "0000:00:05.0"
         dhcp: true
   install:
     disk: /dev/sda
@@ -189,6 +214,18 @@ cluster:
     serviceSubnets:
       - "${CLUSTER_SERVICE_SUBNET}"
 EOF
+
+        # Add a comment about which physical interface corresponds to each busPath
+        bus_paths=$(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.bus_paths" /var/lib/matchbox/network-config.yaml 2>/dev/null)
+        if [ -n "$bus_paths" ] && [ "$bus_paths" != "null" ]; then
+            echo "Bus path mapping for ${hostname}:"
+            for busPath in $(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.bus_paths | keys | .[]" /var/lib/matchbox/network-config.yaml); do
+                interface=$(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.bus_paths.\"${busPath}\"" /var/lib/matchbox/network-config.yaml)
+                echo "  - ${busPath} -> ${interface}"
+            done
+        else
+            echo "No bus path mapping found for ${hostname}, using default bus paths."
+        fi
     else
         base_file="$TMP_DIR/worker.yaml"
         
@@ -197,7 +234,7 @@ EOF
 machine:
   type: worker
   network:
-    hostname: "${hostname}"
+    hostname: "${hostname}${DNS_SUFFIX}"
     interfaces:
       - deviceSelector:
           busPath: "0000:00:03.0"
@@ -205,6 +242,9 @@ machine:
         dhcp: true
       - deviceSelector:
           busPath: "0000:00:04.0"
+        dhcp: true
+      - deviceSelector:
+          busPath: "0000:00:05.0"
         dhcp: true
   install:
     disk: /dev/sda
@@ -227,7 +267,19 @@ EOF
     
     # Preserve version and merge configs
     version=$(yq e '.version' "$base_file")
-    yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$base_file" "$TMP_DIR/network.patch.yaml" > "$TMP_DIR/merged.yaml"
+    
+    # Check if base file has interfaces with interface: eth0 and replace them
+    if yq e '.machine.network.interfaces[] | select(.interface == "eth0")' "$base_file" > /dev/null 2>&1; then
+        echo "Replacing interface: eth0 with deviceSelector approach for ${hostname}"
+        # Create a temporary file without the eth0 interface
+        yq e 'del(.machine.network.interfaces[] | select(.interface == "eth0"))' "$base_file" > "$TMP_DIR/base_without_eth0.yaml"
+        # Merge the cleaned file with the network patch
+        yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$TMP_DIR/base_without_eth0.yaml" "$TMP_DIR/network.patch.yaml" > "$TMP_DIR/merged.yaml"
+    else
+        # Just merge the files as before
+        yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$base_file" "$TMP_DIR/network.patch.yaml" > "$TMP_DIR/merged.yaml"
+    fi
+    
     yq e ".version = \"$version\"" -i "$TMP_DIR/merged.yaml"
     mv "$TMP_DIR/merged.yaml" "$output_file"
     
@@ -251,7 +303,7 @@ EOF
 # Add each hostname as a discovery endpoint
 echo "    discoveryEndpoints:" >> "$TMP_DIR/endpoints.yaml"
 while IFS= read -r hostname; do
-    echo "      - ${hostname}" >> "$TMP_DIR/endpoints.yaml"
+    echo "      - ${hostname}${DNS_SUFFIX}" >> "$TMP_DIR/endpoints.yaml"
 done <<< "$CONTROL_PLANE_NODES"
 
 # Add the remaining fields from the original talosconfig

@@ -22,6 +22,9 @@ services:
       # Cluster ID to use (default: prod)
       - CLUSTER_ID=${CLUSTER_ID:-prod}
       
+      # DNS suffix for node names
+      - DNS_SUFFIX=${DNS_SUFFIX:-.lan}
+      
       # Force regeneration of configs (default: false)
       - FORCE_REGENERATE=${FORCE_REGENERATE:-false}
       
@@ -63,9 +66,31 @@ services:
       - "69:69/udp"
     environment:
       - MATCHBOX_HOST=${MATCHBOX_HOST:-matchbox.lan}
+      - CLUSTER_ID=${CLUSTER_ID:-prod}
+      - DNS_SUFFIX=${DNS_SUFFIX:-.lan}
     networks:
       - pxe-network
     volumes:
       - matchbox-data:/var/lib/matchbox:ro
+    depends_on:
+      - matchbox
+      
+  talos-bootstrap:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.talos-bootstrap
+    environment:
+      - CLUSTER_ID=${CLUSTER_ID:-prod}
+      - BOOTSTRAP_POLICY=${BOOTSTRAP_POLICY:-wait}
+      - BOOTSTRAP_WAIT_TIME=${BOOTSTRAP_WAIT_TIME:-300}
+      - BOOTSTRAP_RETRY_INTERVAL=${BOOTSTRAP_RETRY_INTERVAL:-30}
+      - DNS_SUFFIX=${DNS_SUFFIX:-.lan}
+    networks:
+      - pxe-network
+    volumes:
+      - matchbox-data:/var/lib/matchbox:ro
+      - ${HOME}/.kube:/root/.kube
+      - ${HOME}/.talos:/root/.talos
+    restart: "no"
     depends_on:
       - matchbox

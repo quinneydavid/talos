@@ -1,0 +1,85 @@
+FROM alpine:latest
+
+# Install required packages
+RUN apk add --no-cache curl jq ca-certificates iputils openssl wget bash bind-tools netcat-openbsd
+
+# Install yq from binary
+RUN wget https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64 -O /usr/bin/yq && \
+    chmod +x /usr/bin/yq
+
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin/
+
+# Install talosctl
+RUN wget -q https://github.com/siderolabs/talos/releases/download/v1.9.0/talosctl-linux-amd64 -O /usr/local/bin/talosctl && \
+    chmod +x /usr/local/bin/talosctl
+
+# Create required directories
+RUN mkdir -p /scripts
+
+# Copy bootstrap scripts
+COPY scripts/bootstrap-cluster.sh /scripts/
+RUN chmod +x /scripts/bootstrap-cluster.sh
+
+# Create entrypoint script
+RUN echo '#!/bin/bash' > /entrypoint.sh && \
+    echo 'set -e' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Make sure DNS_SUFFIX is properly set' >> /entrypoint.sh && \
+    echo 'DNS_SUFFIX=${DNS_SUFFIX:-.lan}' >> /entrypoint.sh && \
+    echo 'echo "Using DNS suffix: ${DNS_SUFFIX}"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Set matchbox host from environment variable' >> /entrypoint.sh && \
+    echo 'MATCHBOX_HOST=${MATCHBOX_HOST:-matchbox}' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Skip waiting for matchbox health check since it may report unhealthy but still work' >> /entrypoint.sh && \
+    echo 'echo "Checking if matchbox is responding at http://${MATCHBOX_HOST}:8080..."' >> /entrypoint.sh && \
+    echo 'curl -sf "http://${MATCHBOX_HOST}:8080" || echo "Matchbox health check failed, but continuing anyway"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Wait for talosconfig to be generated' >> /entrypoint.sh && \
+    echo 'CLUSTER_ID=${CLUSTER_ID:-prod}' >> /entrypoint.sh && \
+    echo 'echo "Checking for talosconfig at /var/lib/matchbox/assets/${CLUSTER_ID}-talosconfig"' >> /entrypoint.sh && \
+    echo 'if [ -f "/var/lib/matchbox/assets/${CLUSTER_ID}-talosconfig" ]; then' >> /entrypoint.sh && \
+    echo '  echo "Talosconfig found! Proceeding with bootstrap"' >> /entrypoint.sh && \
+    echo 'else' >> /entrypoint.sh && \
+    echo '  echo "Waiting for talosconfig to be generated..."' >> /entrypoint.sh && \
+    echo '  until [ -f "/var/lib/matchbox/assets/${CLUSTER_ID}-talosconfig" ]; do' >> /entrypoint.sh && \
+    echo '    echo "Waiting for talosconfig to be generated..."' >> /entrypoint.sh && \
+    echo '    sleep 10' >> /entrypoint.sh && \
+    echo '  done' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Copy talosconfig to expected location' >> /entrypoint.sh && \
+    echo 'mkdir -p $HOME/.talos' >> /entrypoint.sh && \
+    echo 'cp /var/lib/matchbox/assets/${CLUSTER_ID}-talosconfig $HOME/.talos/config || echo "Failed to copy talosconfig, but continuing"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Set environment variables for bootstrap script' >> /entrypoint.sh && \
+    echo 'export DNS_SUFFIX="${DNS_SUFFIX}"' >> /entrypoint.sh && \
+    echo 'export CLUSTER_ID="${CLUSTER_ID}"' >> /entrypoint.sh && \
+    echo 'export MATCHBOX_HOST="${MATCHBOX_HOST}"' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Run bootstrap-cluster script in a loop with retries' >> /entrypoint.sh && \
+    echo 'MAX_ATTEMPTS=${MAX_ATTEMPTS:-60}' >> /entrypoint.sh && \
+    echo 'RETRY_INTERVAL=${RETRY_INTERVAL:-60}' >> /entrypoint.sh && \
+    echo 'attempt=1' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "Starting bootstrap process with up to ${MAX_ATTEMPTS} attempts, retrying every ${RETRY_INTERVAL} seconds"' >> /entrypoint.sh && \
+    echo 'while [ $attempt -le $MAX_ATTEMPTS ]; do' >> /entrypoint.sh && \
+    echo '  echo "Attempt $attempt of ${MAX_ATTEMPTS}..."' >> /entrypoint.sh && \
+    echo '  if /scripts/bootstrap-cluster.sh; then' >> /entrypoint.sh && \
+    echo '    echo "Bootstrap successful on attempt $attempt!"' >> /entrypoint.sh && \
+    echo '    exit 0' >> /entrypoint.sh && \
+    echo '  else' >> /entrypoint.sh && \
+    echo '    echo "Bootstrap attempt $attempt failed. Waiting ${RETRY_INTERVAL} seconds before next attempt..."' >> /entrypoint.sh && \
+    echo '    attempt=$((attempt+1))' >> /entrypoint.sh && \
+    echo '    sleep ${RETRY_INTERVAL}' >> /entrypoint.sh && \
+    echo '  fi' >> /entrypoint.sh && \
+    echo 'done' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo 'echo "All bootstrap attempts failed after ${MAX_ATTEMPTS} tries"' >> /entrypoint.sh && \
+    echo 'exit 1' >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

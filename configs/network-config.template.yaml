@@ -6,14 +6,14 @@ global:
 clusters:
   prod:
     network:
-      vip: "10.88.8.210"  # VIP for Kubernetes API
-      dns_suffix: ".lan"  # DNS suffix for node names
+      vip: "${PROD_VIP}"  # VIP for Kubernetes API
+      dns_suffix: "${DNS_SUFFIX:-.lan}"  # DNS suffix for node names
     cluster:
-      name: "prod.quinney.cloud"
-      endpoint: "https://api.prod.quinney.cloud:6443"
-      dns_domain: "cluster.local"
-      pod_subnet: "10.244.0.0/16"
-      service_subnet: "10.96.0.0/12"
+      name: "${PROD_NAME}"
+      endpoint: "${PROD_ENDPOINT}"
+      dns_domain: "${PROD_DNS_DOMAIN}"
+      pod_subnet: "${PROD_POD_SUBNET}"
+      service_subnet: "${PROD_SERVICE_SUBNET}"
     nodes:
       prodcp1:
         mac: "50:6b:8d:96:f7:50"

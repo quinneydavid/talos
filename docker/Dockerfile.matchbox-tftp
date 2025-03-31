@@ -36,15 +36,22 @@ RUN echo '#!/bin/sh' > /entrypoint.sh && \
     echo '' >> /entrypoint.sh && \
     echo 'echo "Creating PXE configs..."' >> /entrypoint.sh && \
     echo 'cp /var/lib/matchbox/network-config.yaml /configs/' >> /entrypoint.sh && \
-    echo 'for node in $(yq e ".nodes | keys | .[]" /configs/network-config.yaml); do' >> /entrypoint.sh && \
-    echo '  mac=$(yq e ".nodes.${node}.mac" /configs/network-config.yaml)' >> /entrypoint.sh && \
-    echo '  type=$(yq e ".nodes.${node}.type" /configs/network-config.yaml)' >> /entrypoint.sh && \
+    echo 'CLUSTER_ID=${CLUSTER_ID:-prod}' >> /entrypoint.sh && \
+    echo 'echo "Using cluster ID: ${CLUSTER_ID}"' >> /entrypoint.sh && \
+    echo 'echo "Checking network-config.yaml content:"' >> /entrypoint.sh && \
+    echo 'cat /configs/network-config.yaml' >> /entrypoint.sh && \
+    echo 'echo "Checking if cluster exists:"' >> /entrypoint.sh && \
+    echo 'yq e ".clusters.${CLUSTER_ID}" /configs/network-config.yaml' >> /entrypoint.sh && \
+    echo 'echo "Checking if nodes exist:"' >> /entrypoint.sh && \
+    echo 'yq e ".clusters.${CLUSTER_ID}.nodes" /configs/network-config.yaml' >> /entrypoint.sh && \
+    echo 'echo "Attempting to get node keys:"' >> /entrypoint.sh && \
+    echo 'for node in $(yq e ".clusters.${CLUSTER_ID}.nodes | keys | .[]" /configs/network-config.yaml); do' >> /entrypoint.sh && \
+    echo '  mac=$(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.mac" /configs/network-config.yaml)' >> /entrypoint.sh && \
+    echo '  type=$(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.type" /configs/network-config.yaml)' >> /entrypoint.sh && \
+    echo '  hostname=$(yq e ".clusters.${CLUSTER_ID}.nodes.${node}.hostname" /configs/network-config.yaml)' >> /entrypoint.sh && \
     echo '  mac_dashes=$(echo $mac | tr ":" "-")' >> /entrypoint.sh && \
-    echo '  if [ "$type" = "controlplane" ]; then' >> /entrypoint.sh && \
-    echo '    config_path="controlplane-${node}.yaml"' >> /entrypoint.sh && \
-    echo '  else' >> /entrypoint.sh && \
-    echo '    config_path="worker-${node}.yaml"' >> /entrypoint.sh && \
-    echo '  fi' >> /entrypoint.sh && \
+    echo '  # Use the same naming pattern as generate-configs.sh' >> /entrypoint.sh && \
+    echo '  config_path="${CLUSTER_ID}-${type}-${hostname}.yaml"' >> /entrypoint.sh && \
     echo '  cat > "/var/lib/tftpboot/pxelinux.cfg/01-${mac_dashes}" << EOF' >> /entrypoint.sh && \
     echo 'DEFAULT talos' >> /entrypoint.sh && \
     echo 'LABEL talos' >> /entrypoint.sh && \
