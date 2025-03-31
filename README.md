@@ -76,7 +76,14 @@ To start the services:
 docker-compose up -d
 ```
 
-This will start the matchbox and matchbox-tftp services, which will:
+All required containers are available on Docker Hub:
+- quinneyd/talos-matchbox:v1.9.0
+- quinneyd/talos-matchbox-tftp:v1.9.0 
+- quinneyd/talos-bootstrap:v1.9.0
+
+The docker-compose file is pre-configured to use these images, so no local building is required.
+
+When started, the services will:
 1. Download the Talos kernel and initramfs
 2. Generate Talos configurations for each node
 3. Set up TFTP for PXE booting
