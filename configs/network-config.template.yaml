@@ -6,57 +6,90 @@ global:
 clusters:
   prod:
     network:
-      vip: "${PROD_VIP}"  # VIP for Kubernetes API
-      dns_suffix: "${DNS_SUFFIX}"  # DNS suffix for node names
+      vip: "10.88.8.210"  # VIP for Kubernetes API
+      dns_suffix: ".lan"  # DNS suffix for node names
     cluster:
-      name: "${PROD_NAME}"
-      endpoint: "${PROD_ENDPOINT}"
-      dns_domain: "${PROD_DNS_DOMAIN}"
-      pod_subnet: "${PROD_POD_SUBNET}"
-      service_subnet: "${PROD_SERVICE_SUBNET}"
+      name: "prod.quinney.cloud"
+      endpoint: "https://api.prod.quinney.cloud:6443"
+      dns_domain: "cluster.local"
+      pod_subnet: "10.244.0.0/16"
+      service_subnet: "10.96.0.0/12"
     nodes:
       prodcp1:
         mac: "50:6b:8d:96:f7:50"
         hostname: "prodcp1"
         type: "controlplane"
+        # Map of bus paths to known interfaces
+        bus_paths:
+          "0000:00:03.0": "ens3"  # Primary network interface
+          "0000:00:04.0": "ens4"  # Secondary network interface
+          "0000:00:05.0": "ens5"  # Tertiary network interface
       prodcp2:
         mac: "50:6b:8d:e3:2e:e7"
         hostname: "prodcp2"
         type: "controlplane"
+        bus_paths:
+          "0000:00:03.0": "ens3"
+          "0000:00:04.0": "ens4"
+          "0000:00:05.0": "ens5"
       prodcp3:
         mac: "50:6b:8d:be:b5:e5"
         hostname: "prodcp3"
         type: "controlplane"
+        bus_paths:
+          "0000:00:03.0": "ens3"
+          "0000:00:04.0": "ens4"
+          "0000:00:05.0": "ens5"
       prodworker1:
         mac: "50:6b:8d:ff:7b:7e"
         hostname: "prodworker1"
         type: "worker"
+        bus_paths:
+          "0000:00:03.0": "ens3"
+          "0000:00:04.0": "ens4"
+          "0000:00:05.0": "ens5"
       prodworker2:
         mac: "50:6b:8d:91:08:d3"
         hostname: "prodworker2"
         type: "worker"
+        bus_paths:
+          "0000:00:03.0": "ens3"
+          "0000:00:04.0": "ens4"
+          "0000:00:05.0": "ens5"
 
   # Example of a second cluster (uncomment and configure as needed)
   # dev:
   #   network:
-  #     vip: "${DEV_VIP}"  # VIP for Kubernetes API
-  #     dns_suffix: "${DNS_SUFFIX}"  # DNS suffix for node names
+  #     vip: ""  # VIP for Kubernetes API
+  #     dns_suffix: ".lan"  # DNS suffix for node names
   #   cluster:
-  #     name: "${DEV_NAME}"
-  #     endpoint: "${DEV_ENDPOINT}"
-  #     dns_domain: "${DEV_DNS_DOMAIN}"
-  #     pod_subnet: "${DEV_POD_SUBNET}"
-  #     service_subnet: "${DEV_SERVICE_SUBNET}"
+  #     name: ""
+  #     endpoint: ""
+  #     dns_domain: ""
+  #     pod_subnet: ""
+  #     service_subnet: ""
   #   nodes:
   #     devcp1:
   #       mac: "aa:bb:cc:dd:ee:ff"
   #       hostname: "devcp1"
   #       type: "controlplane"
+  #       bus_paths:
+  #         "0000:00:03.0": "ens3"
+  #         "0000:00:04.0": "ens4"
+  #         "0000:00:05.0": "ens5"
   #     devcp2:
   #       mac: "aa:bb:cc:dd:ee:gg"
   #       hostname: "devcp2"
   #       type: "controlplane"
+  #       bus_paths:
+  #         "0000:00:03.0": "ens3"
+  #         "0000:00:04.0": "ens4"
+  #         "0000:00:05.0": "ens5"
   #     devworker1:
   #       mac: "aa:bb:cc:dd:ee:hh"
   #       hostname: "devworker1"
   #       type: "worker"
+  #       bus_paths:
+  #         "0000:00:03.0": "ens3"
+  #         "0000:00:04.0": "ens4"
+  #         "0000:00:05.0": "ens5"
